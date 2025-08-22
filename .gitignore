@@ -5,3 +5,4 @@ __pycache__/
 .vscode/
 .env
 agents/base_agent.py
+chroma_db/
