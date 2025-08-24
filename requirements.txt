@@ -1,0 +1,14 @@
+streamlit
+openai
+langchain
+langgraph
+chromadb
+sqlalchemy
+pandas
+plotly
+python-dotenv
+langdetect
+requests
+pytest
+sentance-transformers
+praw
