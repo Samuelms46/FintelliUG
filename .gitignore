@@ -4,5 +4,5 @@ __pycache__/
 .idea/
 .vscode/
 .env
-agents/base_agent.py
 chroma_db/
+fintelliug.db
