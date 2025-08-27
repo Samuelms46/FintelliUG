@@ -16,14 +16,14 @@ class MultiAgentWorkflow:
         # Define the graph
         workflow = StateGraph(AgentState)
         
-        # Add nodes
+        # the nodes
         workflow.add_node("fetch_data", self.fetch_data)
         workflow.add_node("process_posts", self.process_posts)
         workflow.add_node("analyze_competitors", self.analyze_competitors)
         workflow.add_node("generate_insights", self.generate_insights)
         workflow.add_node("compile_report", self.compile_report)
         
-        # Define the flow
+        # Define edges between nodes to define the flow
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "process_posts")
         workflow.add_edge("process_posts", "analyze_competitors")

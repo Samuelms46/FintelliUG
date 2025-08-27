@@ -1,6 +1,7 @@
 from langchain_core.tools import Tool
 from typing import Dict, List, Any
 import os
+import tweepy
 import logging
 from dotenv import load_dotenv
 import tweepy
@@ -10,6 +11,8 @@ from utils.logger import setup_logger
 
 # Load environment variables
 load_dotenv()
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class XSearchTool:
     """Custom tool for searching X posts using v2 API - simplified without LangChain Tool inheritance."""
@@ -21,8 +24,11 @@ class XSearchTool:
                           "{'text': str, 'source': 'twitter', 'timestamp': iso_str}. " \
                           "Use for fintech monitoring in Uganda."
         
-        # Set up logger
-        self.logger = setup_logger("XSearchTool", "logs/xsearch.log")
+        # Set up logger with absolute path
+        logs_dir = os.path.join(PROJECT_ROOT, "logs")
+        os.makedirs(logs_dir, exist_ok=True)  # Ensure logs directory exists
+        log_file = os.path.join(logs_dir, "xsearch.log")
+        self.logger = setup_logger("XSearchTool", log_file)
         
         self.bearer_token = os.getenv("X_BEARER_TOKEN")
         if not self.bearer_token:

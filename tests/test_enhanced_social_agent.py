@@ -7,7 +7,7 @@ import sys
 from typing import Dict, Any
 
 # Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.social_intel_agent import SocialIntelAgent
 
@@ -21,7 +21,7 @@ def test_query_based_processing():
         
         # Test input with query for dynamic social data fetching
         test_input = {
-            "query": "Chipper Cash",
+            "query": "mobile money Uganda",
             "max_results": 15
         }
         

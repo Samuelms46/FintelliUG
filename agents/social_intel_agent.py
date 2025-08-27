@@ -56,30 +56,30 @@ class SocialIntelAgent(BaseAgent):
             return cached_result
         
         try:
-            # Step 1: Fetch social data (either from input or via XSearchTool)
+            # Step 1: Fetchs social data (either from input or via XSearchTool)
             posts = self._fetch_posts(input_data)
             if not posts:
                 return {'error': 'No social data available for processing'}
             
-            # Step 2: Filter and process fintech-related content (already anonymized by tool)
+            # Step 2: Filters and processes fintech-related content (already anonymized by tool)
             relevant_posts = self._filter_fintech_content(posts)
             self.logger.info(f"Filtered {len(relevant_posts)} relevant posts from {len(posts)} total")
             
-            # Step 3: Store in vector database for future similarity searches
+            # Step 3: Stores filtered posts in vector database for future similarity searches
             self._store_posts_in_vector_db(relevant_posts)
             
-            # Step 4: Analyze sentiment trends using LLM
+            # Step 4: Analyzes sentiment trends using LLM
             sentiment_analysis = self._analyze_sentiment_trends(relevant_posts)
             
-            # Step 5: Detect emerging topics
+            # Step 5: Detects emerging topics
             trending_topics = self._detect_trending_topics(relevant_posts)
             
-            # Step 6: Generate insights using LLM with tool access
+            # Step 6: Generates insights using LLM with tool access
             insights = self._generate_social_insights_with_tools(
                 sentiment_analysis, trending_topics, relevant_posts
             )
             
-            # Step 7: Build final result
+            # Step 7: Builds final result
             result = {
                 'agent': self.name,
                 'timestamp': datetime.now().isoformat(),
@@ -268,48 +268,112 @@ class SocialIntelAgent(BaseAgent):
                 self.logger.warning(f"Failed to store post {i} in vector DB: {str(e)}")
     
     def _generate_social_insights_with_tools(self, sentiment_analysis: Dict, 
-                                           trending_topics: List[Dict],
+                                           trending_topics: List[Dict], 
                                            posts: List[Dict]) -> List[Dict]:
-        """Generate insights using LLM with access to social search tools."""
-        # Start with basic insights
-        insights = self._generate_social_insights(sentiment_analysis, trending_topics)
+        """Generate insights using LLM with tool context."""
+        insights = []
         
-        # Use LLM with tools for deeper analysis
-        if self.llm_with_tools and len(posts) > 0:
-            try:
-                # Create a prompt that allows the LLM to use tools for additional context
+        try:
+            if self.llm_with_tools and len(posts) > 0:
+                # Create a comprehensive prompt for better structured output
                 tool_prompt = f"""
-                Based on the social media analysis of {len(posts)} posts about fintech in Uganda:
-                
-                Sentiment Analysis: {json.dumps(sentiment_analysis)}
-                Trending Topics: {json.dumps(trending_topics)}
-                
-                Generate 2-3 additional actionable insights for fintech companies in Uganda. 
-                You can use the x_search tool to gather more context if needed.
-                
-                Return insights as JSON array with format:
-                [{{"type": "market_insight", "severity": "medium", "insight": "description", "evidence": "supporting_data", "confidence": 0.8}}]
-                """
-                
+Based on the social media analysis for fintech content, provide actionable insights.
+
+SENTIMENT DATA:
+- Overall sentiment: {sentiment_analysis.get('overall_sentiment', 'neutral')}
+- Sentiment score: {sentiment_analysis.get('sentiment_score', 0.5)}
+
+TRENDING TOPICS:
+{chr(10).join([f"- {topic['topic']}: {topic['mention_count']} mentions" for topic in trending_topics[:5]])}
+
+SAMPLE POSTS:
+{chr(10).join([f"- {post['text'][:100]}..." for post in posts[:3]])}
+
+Please provide 3-5 specific, actionable insights in this exact format:
+INSIGHT: [Your insight here]
+INSIGHT: [Another insight here]
+INSIGHT: [Third insight here]
+
+Focus on:
+1. Market opportunities in Uganda's fintech sector
+2. Customer sentiment patterns
+3. Competitive landscape observations
+4. Regulatory or technology trends
+5. Risk factors or challenges
+"""
+
                 response = self.llm_with_tools.invoke(tool_prompt)
                 
-                # Extract and parse LLM response
-                if hasattr(response, "content"):
+                # Improved parsing logic
+                if hasattr(response, 'content'):
                     response_text = response.content
                 else:
                     response_text = str(response)
                 
-                # Try to extract JSON from response
-                try:
-                    additional_insights = json.loads(response_text)
-                    if isinstance(additional_insights, list):
-                        insights.extend(additional_insights)
-                        self.logger.info(f"Added {len(additional_insights)} tool-enhanced insights")
-                except json.JSONDecodeError:
-                    self.logger.warning("Could not parse additional insights from LLM response")
-                    
-            except Exception as e:
-                self.logger.error(f"Failed to generate tool-enhanced insights: {str(e)}")
+                # Parse insights using multiple patterns
+                insight_patterns = [
+                    r'INSIGHT:\s*(.+)',           # INSIGHT: format
+                    r'^\d+\.\s*(.+)',            # 1. numbered format  
+                    r'^-\s*(.+)',                # - bullet format
+                    r'^•\s*(.+)',                # • bullet format
+                    r'^\*\s*(.+)'                # * bullet format
+                ]
+                
+                import re
+                found_insights = []
+                
+                for pattern in insight_patterns:
+                    matches = re.findall(pattern, response_text, re.MULTILINE)
+                    found_insights.extend(matches)
+                
+                # If structured parsing fails, extract sentences as insights
+                if not found_insights:
+                    sentences = response_text.split('.')
+                    found_insights = [s.strip() for s in sentences if len(s.strip()) > 20 and len(s.strip()) < 200]
+                
+                # Convert to structured format
+                for i, insight_text in enumerate(found_insights[:5]):  # Limit to 5 insights
+                    if insight_text and len(insight_text.strip()) > 10:
+                        insights.append({
+                            'type': 'llm_generated',
+                            'insight': insight_text.strip(),
+                            'confidence': 0.8 - (i * 0.1),  # Decreasing confidence
+                            'timestamp': datetime.now().isoformat(),
+                            'source': 'tool_enhanced_llm'
+                        })
+                
+                if insights:
+                    self.logger.info(f"Generated {len(insights)} tool-enhanced insights")
+                else:
+                    self.logger.warning("LLM response could not be parsed into structured insights")
+                    # Add a fallback insight
+                    insights.append({
+                        'type': 'llm_generated',
+                        'insight': f"Analysis completed for {len(posts)} social media posts with {sentiment_analysis.get('overall_sentiment', 'mixed')} sentiment",
+                        'confidence': 0.6,
+                        'timestamp': datetime.now().isoformat(),
+                        'source': 'fallback_summary'
+                    })
+        
+        except Exception as e:
+            self.logger.warning(f"Could not generate tool-enhanced insights: {str(e)}")
+            # Provide fallback insights based on available data
+            if sentiment_analysis.get('overall_sentiment'):
+                insights.append({
+                    'type': 'sentiment_based',
+                    'insight': f"Social sentiment towards fintech is {sentiment_analysis['overall_sentiment']} with score {sentiment_analysis.get('sentiment_score', 0):.2f}",
+                    'confidence': 0.7,
+                    'timestamp': datetime.now().isoformat()
+                })
+            
+            if trending_topics:
+                top_topic = trending_topics[0]
+                insights.append({
+                    'type': 'trend_based', 
+                    'insight': f"'{top_topic['topic']}' is trending with {top_topic['mention_count']} mentions in social discussions",
+                    'confidence': 0.8,
+                    'timestamp': datetime.now().isoformat()
+                })
         
         return insights
     
