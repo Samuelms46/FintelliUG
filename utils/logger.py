@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 from datetime import datetime
 
 def setup_logger(name, log_file, level=logging.INFO):
@@ -22,4 +23,7 @@ def setup_logger(name, log_file, level=logging.INFO):
     return logger
 
 # Create main application logger
-app_logger = setup_logger('fintelliug', 'logs/app.log')
+# Get the project root directory (parent of utils)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log_path = os.path.join(project_root, 'logs', 'app.log')
+app_logger = setup_logger('fintelliug', log_path)

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
+from utils.tools import XSearchTool
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,7 +41,7 @@ class BaseAgent(ABC):
         )
         self.embeddings = AzureOpenAIEmbeddings(
             model="text-embedding-3-small",
-            api_type=os.getenv("AZURE_OPENAI_API_KEY"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
             azure_deployment=os.getenv("AZURE_EMBEDDING_BASE")
         )
@@ -61,6 +62,14 @@ class BaseAgent(ABC):
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
+        
+        # Initialize the XSearchTool for social data collection
+        try:
+            self.x_search_tool = XSearchTool()
+            self.logger.info("XSearchTool initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize XSearchTool: {str(e)}")
+            self.x_search_tool = None
 
     @abstractmethod
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -166,11 +175,40 @@ class BaseAgent(ABC):
         self.logger.info(f"{self.name} processed data in {processing_time:.2f}s")
         self.logger.info(f"Generated {insights_count} insights")
 
-    def delete_old_records(self):
-        """Delete ChromaDB records older than 90 days for compliance with Uganda's Data Protection Act."""
+    def fetch_social_data(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Fetch social media data using the XSearchTool and return anonymized posts.
+
+        Args:
+            query (str): Search query for social media posts (e.g., fintech news)
+            max_results (int): Maximum number of posts to return (default: 10).
+
+        Returns:
+            List[Dict[str, Any]]: List of anonymized posts with text, source, and timestamp.
+            Returns empty list if tool is not available or on error.
+        """
+        if not self.x_search_tool:
+            self.logger.warning("XSearchTool not available - cannot fetch social data")
+            return []
+        
         try:
-            cutoff = (datetime.now() - timedelta(days=90)).isoformat()
+            self.logger.info(f"Fetching social data for query: {query}")
+            posts = self.x_search_tool.run(query, max_results)
+            self.logger.info(f"Successfully fetched {len(posts)} social media posts")
+            return posts
+        except Exception as e:
+            self.logger.error(f"Failed to fetch social data: {str(e)}")
+            return []
+
+    def delete_old_records(self, cutoff_days: int = 90) -> bool:
+        """Delete ChromaDB records older than specified days (default: 90 days) for compliance with Uganda's Data Protection Act."""
+        try:
+            cutoff = (datetime.now() - timedelta(days=cutoff_days)).isoformat()
+            total_before = self.vector_store._collection.count()
             self.vector_store.delete(where={"timestamp": {"$lt": cutoff}})
-            self.logger.info(f"Deleted records older than {cutoff}")
+            total_after = self.vector_store._collection.count()
+            deleted_count = total_before - total_after
+            self.logger.info(f"Deleted {deleted_count} records older than {cutoff_days} days")
+            return True
         except Exception as e:
             self.logger.error(f"Failed to delete old records: {str(e)}")
+            return False
