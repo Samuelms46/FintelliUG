@@ -3,6 +3,7 @@ from .state import AgentState
 from database.db_manager import DatabaseManager
 from .competitor_agent import CompetitorAnalysisAgent
 from .coordinator import CoordinatorAgent
+from database.models import SocialMediaPost
 import json
 
 class MultiAgentWorkflow:
@@ -80,6 +81,7 @@ class MultiAgentWorkflow:
             try:
                 # Get full post from database for analysis
                 session = self.db_manager.get_session()
+                # This imports social media post model from database
                 db_post = session.query(SocialMediaPost).get(post["post_id"])
                 
                 if db_post and db_post.cleaned_content:
@@ -112,15 +114,17 @@ class MultiAgentWorkflow:
         negative_count = 0
         total = len(state["processed_posts"])
         
+        session = self.db_manager.get_session()
         for post in state["processed_posts"]:
-            # Get sentiment from database
-            session = self.db_manager.get_session()
-            db_post = session.query(SocialMediaPost).get(post["post_id"])
-            if db_post and db_post.sentiment:
-                if db_post.sentiment == "positive":
-                    positive_count += 1
-                elif db_post.sentiment == "negative":
-                    negative_count += 1
+            try:
+                db_post = session.query(SocialMediaPost).get(post["post_id"])
+                if db_post and db_post.sentiment:
+                    if db_post.sentiment == "positive":
+                        positive_count += 1
+                    elif db_post.sentiment == "negative":
+                        negative_count += 1
+            except Exception as e:
+                print(f"Error getting sentiment for post {post['post_id']}: {e}")
         
         if total > 0:
             positive_pct = (positive_count / total) * 100
