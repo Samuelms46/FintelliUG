@@ -75,6 +75,7 @@ class MultiAgentWorkflow:
     
     def analyze_competitors(self, state: AgentState) -> AgentState:
         """Analyze competitor mentions in processed posts"""
+        app_logger.info(f"Starting competitor analysis with {len(state.get('processed_posts', []))} posts")
         competitor_mentions = []
         
         for post in state["processed_posts"]:
@@ -89,54 +90,56 @@ class MultiAgentWorkflow:
                         post["post_id"], db_post.cleaned_content
                     )
                     competitor_mentions.extend(insights)
+                    app_logger.debug(f"Found {len(insights)} competitor mentions in post {post['post_id']}")
             except Exception as e:
-                print(f"Error analyzing competitors for post {post['post_id']}: {e}")
-        
+                app_logger.error(f"Error analyzing competitors for post {post.get('post_id')}: {e}")
+    
+        app_logger.info(f"Completed competitor analysis with {len(competitor_mentions)} total mentions")
         return {"competitor_mentions": competitor_mentions}
     
-    def generate_insights(self, state: AgentState) -> AgentState:
-        """Generate market insights from processed data"""
-        market_insights = []
-        
-        # Generate insights from competitor data
-        if state["competitor_mentions"]:
+
+def generate_insights(self, state: AgentState) -> AgentState:
+    """Generate market insights from processed data"""
+    market_insights = []
+    
+    # Generate insights from competitor data
+    if state.get("competitor_mentions"):
+        try:
             competitor_report = self.competitor_agent.generate_competitive_intelligence(hours=24)
-            if competitor_report.get("summary"):
+            if competitor_report and competitor_report.get("summary"):
                 for insight in competitor_report["summary"]:
                     market_insights.append({
                         "type": "competitor_intelligence",
                         "content": insight.get("text", ""),
-                        "confidence": insight.get("confidence", 0.5)
+                        "confidence": insight.get("confidence", 0.5),
+                        "source": "competitor_agent"
                     })
-        
-        # Generate basic sentiment insights
-        positive_count = 0
-        negative_count = 0
-        total = len(state["processed_posts"])
-        
+        except Exception as e:
+            app_logger.error(f"Error in competitor insights: {e}")
+    
+    # Generate sentiment insights from actual data
+    try:
         session = self.db_manager.get_session()
-        for post in state["processed_posts"]:
-            try:
-                db_post = session.query(SocialMediaPost).get(post["post_id"])
-                if db_post and db_post.sentiment:
-                    if db_post.sentiment == "positive":
-                        positive_count += 1
-                    elif db_post.sentiment == "negative":
-                        negative_count += 1
-            except Exception as e:
-                print(f"Error getting sentiment for post {post['post_id']}: {e}")
+        recent_posts = session.query(SocialMediaPost).filter(
+            SocialMediaPost.created_at >= datetime.utcnow() - timedelta(hours=24)
+        ).all()
         
-        if total > 0:
-            positive_pct = (positive_count / total) * 100
-            negative_pct = (negative_count / total) * 100
+        if recent_posts:
+            positive = sum(1 for p in recent_posts if p.sentiment and p.sentiment.lower() == 'positive')
+            negative = sum(1 for p in recent_posts if p.sentiment and p.sentiment.lower() == 'negative')
+            total = len(recent_posts)
             
-            market_insights.append({
-                "type": "market_sentiment",
-                "content": f"Market sentiment: {positive_pct:.1f}% positive, {negative_pct:.1f}% negative",
-                "confidence": min(0.9, max(0.5, (abs(positive_pct - negative_pct) / 100) + 0.5))
-            })
-        
-        return {"market_insights": market_insights}
+            if total > 0:
+                market_insights.append({
+                    "type": "sentiment_analysis",
+                    "content": f"Sentiment analysis: {positive/total*100:.1f}% positive, {negative/total*100:.1f}% negative",
+                    "confidence": 0.7,
+                    "source": "sentiment_analysis"
+                })
+    except Exception as e:
+        app_logger.error(f"Error in sentiment insights: {e}")
+    
+    return {"market_insights": market_insights}
     
     def compile_report(self, state: AgentState) -> AgentState:
         """Compile final intelligence report"""

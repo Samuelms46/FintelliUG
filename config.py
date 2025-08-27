@@ -21,7 +21,8 @@ class Config:
     DATA_DIR = os.getenv("DATA_DIR", "./data")
     
     # Model settings
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")  # Can use local model
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2") 
+    USE_OPENAI_EMBEDDINGS = os.getenv("USE_OPENAI_EMBEDDING", "false").lower() == "true"    
     LLM_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
     
     # Embedding mode

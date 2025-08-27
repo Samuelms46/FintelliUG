@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from config import Config
 from utils.logger import app_logger
+import openai
 
 class ChromaDBManager:
     def __init__(self):
@@ -13,9 +14,19 @@ class ChromaDBManager:
                 path=Config.VECTOR_DB_PATH,
                 settings=Settings(anonymized_telemetry=False)
             )
-            self.embedding_model = SentenceTransformer(Config.EMBEDDING_MODEL)
+
+            # Initialize the appropriate embedding model
+            if Config.USE_OPENAI_EMBEDDINGS:
+                self.embedding_model = "openai"
+                app_logger.info("Using OpenAI embeddings")
+            else:
+                # Use a local sentence-transformers model
+                self.embedding_model = SentenceTransformer(Config.EMBEDDING_MODEL)
+                app_logger.info(f"Using local embeddings model: {Config.EMBEDDING_MODEL}")
+
             self.collection = self._get_or_create_collection()
             app_logger.info("ChromaDB manager initialized successfully")
+        
         except Exception as e:
             app_logger.error(f"Failed to initialize ChromaDB: {e}")
             # Fallback to mock implementation
@@ -38,12 +49,40 @@ class ChromaDBManager:
     
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts"""
-        if self.embedding_model is None:
-            # Return dummy embeddings if model not available
+        if self.embedding_model == "openai":
+            # Use OpenAI API for embeddings
+            return self._generate_openai_embeddings(texts)
+        elif self.embedding_model is None:
+            # Fallback to dummy embeddings if model not available
             return [[0.1] * 384 for _ in texts]  # 384-dim dummy embeddings
-        
+        else:
+        # Use local sentence-transformers model
         embeddings = self.embedding_model.encode(texts)
         return embeddings.tolist()
+            
+    def _generate_openai_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using OpenAI API"""
+        try:
+            response = openai.Embedding.create(
+                input=texts,
+                model="text-embedding-3-small"
+            )
+            return [item['embedding'] for item in response.data]
+        except Exception as e:
+            app_logger .error(f"OpenAI embedding error: {e}")
+            # Fallback to local model if OpenAI fails
+            if hasattr(self, 'embedding_model'):
+                embedding = self._local_model.encode(texts)
+                return embedding.tolist()
+            else:
+                # Create a local model as fallback
+                try:
+                    self._local_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    embedding = self._local_model.encode(texts)
+                    return embedding.tolist()
+                except:
+                    #final fallback: dummy embeddings
+                    return [[0.1] * 384 for _ in texts]    
     
     def add_documents(self, documents: List[Dict[str, Any]]) -> None:
         """Add documents to the vector database"""

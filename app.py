@@ -19,26 +19,26 @@ st.set_page_config(
     layout="wide"
 )
 
-def enable_dark_theme():
-    dark_css = """
-    <style>
-    :root { color-scheme: dark; }
-    html, body, [data-testid="stApp"] { background-color: #0E1117; color: #FAFAFA; }
-    section[data-testid="stSidebar"] { background-color: #111318; }
-    .stMarkdown, .stText, .stCaption, .stMetric { color: #FAFAFA; }
-    div[data-baseweb="select"] * { color: #FAFAFA !important; }
-    .stButton>button { background: #4e79a7; color: #ffffff; border: 1px solid #3b5d82; }
-    .stTabs [data-baseweb="tab-list"] { border-color: #30363d; }
-    .stTabs [data-baseweb="tab"] { color: #c9d1d9; }
-    .stTabs [aria-selected="true"] { color: #ffffff; border-color: #58a6ff; }
-    .stAlert { background-color: #161b22; color: #FAFAFA; }
-    </style>
-    """
-    st.markdown(dark_css, unsafe_allow_html=True)
-    px.defaults.template = "plotly_dark"
-    px.defaults.color_discrete_sequence = px.colors.qualitative.Set3
+#def enable_dark_theme():
+#    dark_css = """
+#    <style>
+#    :root { color-scheme: dark; }
+#    html, body, [data-testid="stApp"] { background-color: #0E1117; color: #FAFAFA; }
+#    section[data-testid="stSidebar"] { background-color: #111318; }
+#    .stMarkdown, .stText, .stCaption, .stMetric { color: #FAFAFA; }
+#    div[data-baseweb="select"] * { color: #FAFAFA !important; }
+#    .stButton>button { background: #4e79a7; color: #ffffff; border: 1px solid #3b5d82; }
+#    .stTabs [data-baseweb="tab-list"] { border-color: #30363d; }
+#    .stTabs [data-baseweb="tab"] { color: #c9d1d9; }
+#    .stTabs [aria-selected="true"] { color: #ffffff; border-color: #58a6ff; }
+#    .stAlert { background-color: #161b22; color: #FAFAFA; }
+#    </style>
+#    """
+#    st.markdown(dark_css, unsafe_allow_html=True)
+#    px.defaults.template = "plotly_dark"
+#    px.defaults.color_discrete_sequence = px.colors.qualitative.Set3
 
-enable_dark_theme()
+#enable_dark_theme()
 
 # Initialize components
 db_manager = DatabaseManager()

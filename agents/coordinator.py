@@ -17,6 +17,17 @@ class CoordinatorAgent:
         """
         Synthesize insights from all specialized agents into a comprehensive report
         """
+        # If we have real data, use it. Otherwise, use the fallback insights
+        has_real_data = any([
+            social_insights and len(social_insights) > 0,
+            competitor_insights and len(competitor_insights) > 0,
+            sentiment_insights and len(sentiment_insights) > 0
+        ])
+        if not has_real_data:
+            app_logger.warning("No real data available. Using fallback insights.")
+            return self._generate_fallback_insights(social_insights, competitor_insights, sentiment_insights)
+        
+        # If we have real data, synthesize insights
         try:
             # Prepare data for synthesis
             insights_data = {
@@ -25,38 +36,39 @@ class CoordinatorAgent:
                 "sentiment_insights": sentiment_insights
             }
             
-            prompt = f"""
-            As the Chief Intelligence Officer for Uganda's fintech market, synthesize these insights 
-            from specialized agents into a comprehensive intelligence report.
+            # Count total insights for Confidence calculation
+            total_insights = (len(social_insights or [])) +
+                            len(competitor_insights or []) + 
+                            len(sentiment_insights or []))
+            base_confidence = min(0.3 + (total_insights * 0.02), 0.9) # social confidence with hight volume
+
+
+            prompt =  f"""
+            As the Chief Intelligence Officer for Uganda's fintech market, analyze these insights 
+            and create a comprehensive intelligence report.
             
-            Data from agents:
+            DATA FROM AGENTS:
             {json.dumps(insights_data, indent=2)}
             
-            Instructions:
-            1. Identify overarching trends and patterns
-            2. Resolve any conflicts between different agent perspectives
-            3. Highlight the 3-5 most important findings
-            4. Provide actionable recommendations for investors
-            5. Assess market health on a scale of 1-10
-            6. Identify potential risks and opportunities
+            CONTEXT: Uganda fintech market, mobile money, digital banking, financial services.
             
-            Return a JSON response with:
-            - executive_summary: Brief overview of key findings
-            - key_trends: List of major trends with evidence
-            - market_health_score: Overall market health (1-10)
-            - investment_opportunities: Ranked list of opportunities
-            - risks: List of potential risks with severity
-            - recommendations: Actionable recommendations
-            - confidence: Overall confidence in analysis (0-1)
+            Create a JSON report with:
+            - executive_summary: 2-3 sentence overview of the most important findings
+            - key_trends: 3-5 major trends with brief evidence from the data
+            - market_health_score: 1-10 score based on sentiment and activity
+            - investment_opportunities: 2-3 specific opportunities with potential (High/Medium/Low)
+            - risks: 2-3 specific risks with severity (High/Medium/Low) 
+            - recommendations: 3-5 actionable recommendations
+            - confidence: 0-1 score based on data quality and quantity
             
-            Only return the JSON object, no other text.
+            Focus on Uganda-specific context and make insights actionable for investors.
             """
             
             response = openai.ChatCompletion.create(
                 model=Config.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,
-                temperature=0.1
+                temperature=0.1 # Lower temp for a more consistent results
             )
             
             result = response.choices[0].message.content.strip()
@@ -64,6 +76,12 @@ class CoordinatorAgent:
             
             if json_match:
                 synthesized_insights = json.loads(json_match.group())
+                 # Enhance with real data metrics
+                synthesized_insights['data_metrics'] = {
+                    'social_insights_count': len(social_insights or []),
+                    'competitor_insights_count': len(competitor_insights or []),
+                    'sentiment_insights_count': len(sentiment_insights or [])
+                }
                 app_logger.info("Successfully synthesized insights from all agents")
                 return synthesized_insights
             else:
@@ -72,7 +90,104 @@ class CoordinatorAgent:
                 
         except Exception as e:
             app_logger.error(f"Error in coordinator agent: {e}")
-            return self._generate_fallback_insights(social_insights, competitor_insights, sentiment_insights)
+                        return self._generate_data_driven_insights({
+                "social_insights": social_insights or [],
+                "competitor_insights": competitor_insights or [], 
+                "sentiment_insights": sentiment_insights or []
+            })
+
+
+
+    def _generate_data_driven_insights(self, insights_data: Dict) -> Dict:
+        """Generate insights directly from data without OpenAI"""
+        social_insights = insights_data.get('social_insights', [])
+        competitor_insights = insights_data.get('competitor_insights', [])
+        sentiment_insights = insights_data.get('sentiment_insights', [])
+        
+        # Calculate metrics from real data
+        total_insights = len(social_insights) + len(competitor_insights) + len(sentiment_insights)
+        
+        # Analyze competitor sentiment
+        competitor_sentiment = {}
+        for insight in competitor_insights:
+            competitor = insight.get('competitor', 'Unknown')
+            sentiment = insight.get('sentiment', 'neutral')
+            if competitor not in competitor_sentiment:
+                competitor_sentiment[competitor] = {'positive': 0, 'negative': 0, 'neutral': 0}
+            competitor_sentiment[competitor][sentiment] += 1
+        
+        # Generate insights based on actual data
+        trends = []
+        opportunities = []
+        risks = []
+        
+        # Add trends based on actual data
+        if competitor_insights:
+            trends.append("Competitor discussions are active in the market")
+        if sentiment_insights:
+            positive_count = sum(1 for i in sentiment_insights if 'positive' in str(i).lower())
+            if positive_count > len(sentiment_insights) / 2:
+                trends.append("Overall positive sentiment in recent discussions")
+        
+        # Add opportunities based on data
+        if competitor_insights:
+            opportunities.append({"opportunity": "Competitive intelligence gathering", "potential": "High"})
+        
+        # Add risks based on data
+        if any('negative' in str(i).lower() for i in competitor_insights):
+            risks.append({"risk": "Negative competitor sentiment", "severity": "Medium"})
+        
+        return {
+            "executive_summary": f"Analysis based on {total_insights} data points from social media monitoring",
+            "key_trends": trends or ["Market activity detected in social discussions"],
+            "market_health_score": 7.0,
+            "investment_opportunities": opportunities or [{"opportunity": "Market monitoring", "potential": "Medium"}],
+            "risks": risks or [{"risk": "Limited data availability", "severity": "Low"}],
+            "recommendations": [
+                "Increase data collection for better insights",
+                "Monitor competitor activities closely",
+                "Track customer sentiment trends"
+            ],
+            "confidence": min(0.3 + (total_insights * 0.05), 0.8),
+            "data_metrics": {
+                'total_insights': total_insights,
+                'source': 'data_driven_analysis'
+            }
+        }
+    
+    def _generate_fallback_insights(self):
+        """Fallback when no data is available"""
+        return {
+            "executive_summary": "Initial system analysis - awaiting more data collection",
+            "key_trends": [
+                "Uganda fintech market shows growth potential",
+                "Mobile money adoption increasing across the country",
+                "Regulatory environment evolving"
+            ],
+            "market_health_score": 6.5,
+            "investment_opportunities": [
+                {"opportunity": "Digital financial inclusion", "potential": "High"},
+                {"opportunity": Mobile payment solutions", "potential": "Medium"}
+            ],
+            "risks": [
+                {"risk": "Regulatory uncertainty", "severity": "Medium"},
+                {"risk": "Infrastructure challenges", "severity": "Medium"}
+            ],
+            "recommendations": [
+                "Deploy more data collection sources",
+                "Establish baseline metrics",
+                "Develop competitor monitoring framework"
+            ],
+            "confidence": 0.4,
+            "data_metrics": {
+                'total_insights': 0,
+                'source': 'fallback_analysis'
+            }
+        }
+    
+
+
+
     
     def _generate_fallback_insights(self, social_insights, competitor_insights, sentiment_insights):
         """Generate fallback insights when LLM fails"""

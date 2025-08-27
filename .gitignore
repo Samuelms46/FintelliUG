@@ -4,3 +4,4 @@ fintelliug.db
 venv/
 data/chroma_db/
 logs/
+__pycache__
