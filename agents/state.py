@@ -8,6 +8,7 @@ class AgentState(TypedDict):
     # Processed data
     raw_posts: List[dict]
     processed_posts: List[dict]
+    social_insights: List[dict]
     competitor_mentions: List[dict]
     market_insights: List[dict]
     

@@ -26,6 +26,14 @@ class BaseAgent(ABC):
         """Initialize the agent with Groq LLM, ChromaDB, Redis, and Azure embeddings from .env.
         """
         self.name = name
+        # Initialize logger early 
+        self.logger = logging.getLogger(f"agent.{name}")
+        if not self.logger.handlers:
+            self.logger.setLevel(logging.INFO)
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
         required_env_vars = [
             "GROQ_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_EMBEDDING_ENDPOINT",
             "AZURE_EMBEDDING_BASE"
@@ -45,23 +53,25 @@ class BaseAgent(ABC):
             azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
             azure_deployment=os.getenv("AZURE_EMBEDDING_BASE")
         )
-        self.vector_store = Chroma(
-            collection_name=f"fintelliug_{name.lower().replace(' ', '_')}_data",
-            embedding_function=self.embeddings,
-            persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
-        )
+        # Use a unique collection name for each agent to avoid conflicts
+        collection_name = f"fintelliug_{name.lower().replace(' ', '_')}_data"
+        persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
+        
+        try:
+            self.vector_store = Chroma(
+                collection_name=collection_name,
+                embedding_function=self.embeddings,
+                persist_directory=persist_dir
+            )
+            self.logger.info(f"Initialized ChromaDB collection: {collection_name}")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ChromaDB: {str(e)}")
+            self.vector_store = None
         self.redis_client = redis.Redis(
             host=os.getenv("REDIS_HOST", "localhost"),
             port=int(os.getenv("REDIS_PORT", 6379)),
             decode_responses=True
         )
-        self.logger = logging.getLogger(f"agent.{name}")
-        if not self.logger.handlers:
-            self.logger.setLevel(logging.INFO)
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
         
         # Initialize the XSearchTool for social data collection
         try:
@@ -106,6 +116,10 @@ class BaseAgent(ABC):
             metadata (Dict[str, Any]): Metadata (e.g., source, timestamp).
             doc_id (str): Unique identifier for the document.
         """
+        if self.vector_store is None:
+            self.logger.warning("Vector store not initialized - skipping storage")
+            return
+            
         try:
             self.vector_store.add_texts(texts=[text], metadatas=[metadata], ids=[doc_id])
             self.logger.info(f"Stored document {doc_id} in ChromaDB")
@@ -122,6 +136,10 @@ class BaseAgent(ABC):
         Returns:
             List[Dict[str, Any]]: List of matching documents with text, metadata, and scores.
         """
+        if self.vector_store is None:
+            self.logger.warning("Vector store not initialized - returning empty results")
+            return []
+            
         try:
             results = self.vector_store.similarity_search_with_score(query, k=k)
             return [{"text": doc.page_content, "metadata": doc.metadata, "score": score} for doc, score in results]

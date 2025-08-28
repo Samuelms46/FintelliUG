@@ -1,24 +1,29 @@
 from langgraph.graph import StateGraph, END
 from .state import AgentState
 from database.db_manager import DatabaseManager
+from database.models import SocialMediaPost
 from .competitor_agent import CompetitorAnalysisAgent
 from .coordinator import CoordinatorAgent
+from .social_intel_agent import SocialIntelAgent
 import json
+from datetime import datetime
 
 class MultiAgentWorkflow:
     def __init__(self):
         self.db_manager = DatabaseManager()
         self.competitor_agent = CompetitorAnalysisAgent()
         self.coordinator_agent = CoordinatorAgent()
+        self.social_agent = SocialIntelAgent({})  # Initialize with empty config
         self.workflow = self._build_workflow()
     
     def _build_workflow(self):
         # Define the graph
         workflow = StateGraph(AgentState)
         
-        # the nodes
+        # Add the nodes
         workflow.add_node("fetch_data", self.fetch_data)
         workflow.add_node("process_posts", self.process_posts)
+        workflow.add_node("social_intelligence", self.social_intelligence)
         workflow.add_node("analyze_competitors", self.analyze_competitors)
         workflow.add_node("generate_insights", self.generate_insights)
         workflow.add_node("compile_report", self.compile_report)
@@ -26,7 +31,8 @@ class MultiAgentWorkflow:
         # Define edges between nodes to define the flow
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "process_posts")
-        workflow.add_edge("process_posts", "analyze_competitors")
+        workflow.add_edge("process_posts", "social_intelligence")
+        workflow.add_edge("social_intelligence", "analyze_competitors")
         workflow.add_edge("analyze_competitors", "generate_insights")
         workflow.add_edge("generate_insights", "compile_report")
         workflow.add_edge("compile_report", END)
@@ -51,6 +57,27 @@ class MultiAgentWorkflow:
                 "timestamp": post.timestamp
             })
         
+        # If no unprocessed posts, create some mock data for demonstration
+        if not posts_data:
+            posts_data = [
+                {
+                    "id": 1,
+                    "source": "reddit",
+                    "content": "MTN Mobile Money fees are getting too high. Thinking of switching to Airtel.",
+                    "author": "uganda_user123",
+                    "url": "https://reddit.com/r/uganda/123",
+                    "timestamp": datetime.now()
+                },
+                {
+                    "id": 2,
+                    "source": "twitter",
+                    "content": "Airtel Money has better network coverage in my village than MTN. Finally can send money home easily!",
+                    "author": "rural_user",
+                    "url": "https://twitter.com/user/123",
+                    "timestamp": datetime.now()
+                }
+            ]
+        
         return {"raw_posts": posts_data}
     
     def process_posts(self, state: AgentState) -> AgentState:
@@ -72,6 +99,36 @@ class MultiAgentWorkflow:
         
         return {"processed_posts": processed_posts}
     
+    def social_intelligence(self, state: AgentState) -> AgentState:
+        """Run social intelligence analysis"""
+        try:
+            # Convert processed posts to format expected by social agent
+            posts_for_analysis = []
+            for post in state["processed_posts"]:
+                # Get full post from database
+                session = self.db_manager.get_session()
+                try:
+                    db_post = session.query(SocialMediaPost).get(post["post_id"])
+                    if db_post:
+                        posts_for_analysis.append({
+                            "text": db_post.cleaned_content or db_post.content,
+                            "source": db_post.source,
+                            "timestamp": db_post.timestamp.isoformat() if db_post.timestamp else datetime.now().isoformat()
+                        })
+                finally:
+                    session.close()
+            
+            # Run social intelligence analysis
+            social_result = self.social_agent.process({
+                "posts": posts_for_analysis
+            })
+            
+            return {"social_insights": social_result.get("insights", [])}
+            
+        except Exception as e:
+            print(f"Error in social intelligence: {e}")
+            return {"social_insights": []}
+    
     def analyze_competitors(self, state: AgentState) -> AgentState:
         """Analyze competitor mentions in processed posts"""
         competitor_mentions = []
@@ -80,13 +137,16 @@ class MultiAgentWorkflow:
             try:
                 # Get full post from database for analysis
                 session = self.db_manager.get_session()
-                db_post = session.query(SocialMediaPost).get(post["post_id"])
-                
-                if db_post and db_post.cleaned_content:
-                    insights = self.competitor_agent.extract_competitor_insights(
-                        post["post_id"], db_post.cleaned_content
-                    )
-                    competitor_mentions.extend(insights)
+                try:
+                    db_post = session.query(SocialMediaPost).get(post["post_id"])
+                    
+                    if db_post and db_post.cleaned_content:
+                        insights = self.competitor_agent.extract_competitor_insights(
+                            post["post_id"], db_post.cleaned_content
+                        )
+                        competitor_mentions.extend(insights)
+                finally:
+                    session.close()
             except Exception as e:
                 print(f"Error analyzing competitors for post {post['post_id']}: {e}")
         
@@ -94,6 +154,8 @@ class MultiAgentWorkflow:
     
     def generate_insights(self, state: AgentState) -> AgentState:
         """Generate market insights from processed data"""
+        from database.models import SocialMediaPost
+        
         market_insights = []
         
         # Generate insights from competitor data
@@ -115,12 +177,15 @@ class MultiAgentWorkflow:
         for post in state["processed_posts"]:
             # Get sentiment from database
             session = self.db_manager.get_session()
-            db_post = session.query(SocialMediaPost).get(post["post_id"])
-            if db_post and db_post.sentiment:
-                if db_post.sentiment == "positive":
-                    positive_count += 1
-                elif db_post.sentiment == "negative":
-                    negative_count += 1
+            try:
+                db_post = session.query(SocialMediaPost).get(post["post_id"])
+                if db_post and db_post.sentiment:
+                    if db_post.sentiment == "positive":
+                        positive_count += 1
+                    elif db_post.sentiment == "negative":
+                        negative_count += 1
+            finally:
+                session.close()
         
         if total > 0:
             positive_pct = (positive_count / total) * 100
@@ -140,7 +205,7 @@ class MultiAgentWorkflow:
         
         # Use coordinator to synthesize all insights
         synthesized = self.coordinator_agent.synthesize_insights(
-            [],  # social_insights would come from another agent
+            state.get("social_insights", []),  # social_insights from social agent
             state["competitor_mentions"],
             state["market_insights"]
         )
@@ -155,7 +220,8 @@ class MultiAgentWorkflow:
             "metrics": {
                 "posts_processed": len(state["processed_posts"]),
                 "competitor_mentions": len(state["competitor_mentions"]),
-                "market_insights": len(state["market_insights"])
+                "market_insights": len(state["market_insights"]),
+                "social_insights": len(state.get("social_insights", []))
             }
         }
         
@@ -177,6 +243,7 @@ class MultiAgentWorkflow:
             processed_posts=[],
             competitor_mentions=[],
             market_insights=[],
+            social_insights=[],
             final_report=None,
             errors=[]
         )

@@ -8,7 +8,14 @@ from typing import Dict, List
 
 class DatabaseManager:
     def __init__(self):
-        self.engine = create_engine(Config.DATABASE_URL)
+        # Enable pool_pre_ping to avoid stale connections; tune pool size to reduce QueuePool overflows
+        self.engine = create_engine(
+            Config.DATABASE_URL,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30
+        )
         self.Session = sessionmaker(bind=self.engine)
         self.vector_db = ChromaDBManager()
         Base.metadata.create_all(self.engine)

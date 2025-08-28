@@ -7,21 +7,32 @@ from config import Config
 from utils.logger import app_logger
 
 class ChromaDBManager:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ChromaDBManager, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        try:
-            self.client = chromadb.PersistentClient(
-                path=Config.VECTOR_DB_PATH,
-                settings=Settings(anonymized_telemetry=False)
-            )
-            self.embedding_model = SentenceTransformer(Config.EMBEDDING_MODEL)
-            self.collection = self._get_or_create_collection()
-            app_logger.info("ChromaDB manager initialized successfully")
-        except Exception as e:
-            app_logger.error(f"Failed to initialize ChromaDB: {e}")
-            # Fallback to mock implementation
-            self.client = None
-            self.embedding_model = None
-            self.collection = None
+        if not self._initialized:
+            try:
+                self.client = chromadb.PersistentClient(
+                    path=Config.VECTOR_DB_PATH,
+                    settings=Settings(anonymized_telemetry=False)
+                )
+                self.embedding_model = SentenceTransformer(Config.EMBEDDING_MODEL)
+                self.collection = self._get_or_create_collection()
+                app_logger.info("ChromaDB manager initialized successfully")
+                self._initialized = True
+            except Exception as e:
+                app_logger.error(f"Failed to initialize ChromaDB: {e}")
+                # Fallback to mock implementation
+                self.client = None
+                self.embedding_model = None
+                self.collection = None
+                self._initialized = True
     
     def _get_or_create_collection(self):
         """Get existing collection or create a new one"""

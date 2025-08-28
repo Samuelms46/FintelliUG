@@ -20,10 +20,15 @@ st.set_page_config(
 )
 
 # Initialize components
-db_manager = DatabaseManager()
-data_processor = DataProcessor()
-competitor_agent = CompetitorAnalysisAgent()
-reddit_collector = RedditDataCollector()
+try:
+    db_manager = DatabaseManager()
+    data_processor = DataProcessor()
+    competitor_agent = CompetitorAnalysisAgent()
+    reddit_collector = RedditDataCollector()
+except Exception as e:
+    st.error(f"Failed to initialize components: {str(e)}")
+    st.info("Please check your environment configuration and API keys")
+    st.stop()
 
 # App title
 st.title("📊 FintelliUG - Uganda Fintech Intelligence Platform")
@@ -92,9 +97,18 @@ if st.sidebar.button("🔄 Collect & Process New Data"):
 
 if st.sidebar.button("🤖 Run Intelligence Workflow"):
     with st.spinner("Running multi-agent workflow..."):
-        workflow = MultiAgentWorkflow()
-        result = workflow.run()
-        st.sidebar.success("Workflow completed!")
+        try:
+            workflow = MultiAgentWorkflow()
+            result = workflow.run()
+            st.sidebar.success("Workflow completed!")
+            
+            # Show workflow results
+            if result and 'final_report' in result:
+                st.sidebar.info(f"Processed {result['final_report'].get('metrics', {}).get('posts_processed', 0)} posts")
+                st.sidebar.info(f"Generated {result['final_report'].get('metrics', {}).get('market_insights', 0)} insights")
+        except Exception as e:
+            st.sidebar.error(f"Workflow failed: {str(e)}")
+            st.sidebar.info("Check your API keys and environment configuration")
 
 # Main content tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -196,10 +210,11 @@ with tab3:
             st.write(f"Period: Last {report['time_period_hours']} hours")
             st.write(f"Total competitor mentions: {report['total_mentions']}")
             
-            if report['competitor_insights']:
+            competitor_items = report.get('competitor_insights') or report.get('competitor_mentions', [])
+            if competitor_items:
                 # Competitor sentiment
                 competitor_sentiment = {}
-                for insight in report['competitor_insights']:
+                for insight in competitor_items:
                     competitor = insight['competitor']
                     sentiment = insight['sentiment']
                     
@@ -222,7 +237,7 @@ with tab3:
                                   f"{(sentiments['neutral']/total*100):.1f}%")
             
             # Summary insights
-            if report['summary']:
+            if report.get('summary'):
                 st.subheader("Key Insights")
                 for insight in report['summary']:
                     st.info(f"{insight.get('text', '')} (Confidence: {insight.get('confidence', 0)*100:.1f}%)")
@@ -296,4 +311,4 @@ with tab5:
 
 # Footer
 st.markdown("---")
-st.caption("FintelliUG MVP - Uganda Fintech Intelligence Platform | Built with LangGraph, OpenAI, and Streamlit")
+st.caption("FintelliUG MVP - Uganda Fintech Intelligence Platform")
