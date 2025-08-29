@@ -4,18 +4,75 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from database.db_manager import DatabaseManager
 from data_processing.processor import DataProcessor
+from agents.social_intel_agent import SocialIntelAgent
 from agents.competitor_agent import CompetitorAnalysisAgent
+from agents.market_sentiment_agent import MarketSentimentAgent
 from agents.langgraph_workflow import MultiAgentWorkflow
 from utils.helpers import format_timestamp, time_ago, safe_json_loads
 from config import Config
 import json
+
+
+# Social Intelligence section
+st.subheader("Social Intelligence")
+
+social_query = st.text_input(
+    "Social search query:",
+    value="Uganda fintech",
+    key="social_query"
+)
+social_max = st.slider("Max results", 5, 50, 20, key="social_max")
+
+if st.button("Run Social Intelligence", key="run_social"):
+    with st.spinner("Running social intelligence..."):
+        try:
+            agent = SocialIntelAgent(config={})  # config not used, but required by signature
+            result = agent.process({"query": social_query, "max_results": social_max})
+
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                # High-level metrics
+                cols = st.columns(3)
+                cols[0].metric("Posts Processed", result.get("posts_processed", 0))
+                cols[1].metric("Relevant Posts", result.get("relevant_posts", 0))
+                dq = result.get("data_quality_score", 0)
+                cols[2].metric("Data Quality", f"{dq*100:.1f}%")
+
+                # Sentiment summary
+                sa = result.get("sentiment_analysis", {}) or {}
+                st.markdown("### Sentiment Overview")
+                st.write(f"Overall: {sa.get('overall_sentiment', 'unknown').title()}")
+                st.write(f"Score: {sa.get('sentiment_score', 0):.2f}")
+
+                # Trending topics
+                topics = result.get("trending_topics", []) or []
+                if topics:
+                    st.markdown("### Trending Topics")
+                    for t in topics[:5]:
+                        st.write(f"- {t.get('topic', 'topic')} ({t.get('mention_count', 0)} mentions)")
+
+                # Insights
+                insights = result.get("insights", []) or []
+                if insights:
+                    st.markdown("### Insights")
+                    for i, ins in enumerate(insights[:5], start=1):
+                        text = ins.get("insight") or ins.get("text") or str(ins)
+                        st.write(f"{i}. {text}")
+
+                # Optional: inspect raw payload
+                with st.expander("Show raw result"):
+                    st.json(result)
+
+        except Exception as e:
+            st.error(f"Failed to run SocialIntelAgent: {e}")
 from data_collection.reddit_collector import RedditDataCollector
 from database.models import Insight
 
 # Set page config
 st.set_page_config(
     page_title="FintelliUG - Uganda Fintech Intelligence",
-    page_icon="📊",
+    page_icon="💹",
     layout="wide"
 )
 
@@ -31,7 +88,7 @@ except Exception as e:
     st.stop()
 
 # App title
-st.title("📊 FintelliUG - Uganda Fintech Intelligence Platform")
+st.title("💹 FintelliUG - Uganda Fintech Intelligence Platform")
 st.markdown("""
 Agentic audience insights platform for Uganda's fintech ecosystem.
 Monitor social conversations, analyze sentiment, and generate competitive intelligence.
@@ -111,12 +168,13 @@ if st.sidebar.button("🤖 Run Intelligence Workflow"):
             st.sidebar.info("Check your API keys and environment configuration")
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Dashboard", 
     "💬 Social Posts", 
     "🏢 Competitor Analysis",
     "🔍 Vector Search",
     "📋 Insights"
+    "📊 Market Health"
 ])
 
 with tab1:
@@ -308,6 +366,71 @@ with tab5:
                     st.caption(f"Based on {len(safe_json_loads(insight.source_data))} data points")
     else:
         st.info("No insights yet. Run the intelligence workflow to generate insights.")
+
+with tab6:
+    st.header("Market Health Analysis")
+
+    time_period = st.selectbox(
+        "Analysis Period:",
+        ["Last 24 hours", "Last 7 days", "Last 30 days"]
+    )
+
+    if st.button("Analyze Market Health"):
+        with st.spinner("Analyzing market health..."):
+            # Convert time period to hours
+            hours = 24
+            if time_period == "Last 7 days":
+                hours = 24 * 7
+            elif time_period == "Last 30 days":
+                hours = 24 * 30
+
+            # Run market sentiment analysis
+            market_agent = MarketSentimentAgent()
+            result = market_agent.process({"hours": hours})
+
+            if "error" in result and result["error"]:
+                st.error(result["error"])
+            else:
+                health = result["health_indicators"]
+
+                # Create columns for metrics
+                col1, col2, col3 = st.columns(3)
+
+                # Market health status with color (reserved for future styling)
+                health_color = {
+                    "strong": "green",
+                    "stable": "blue",
+                    "caution": "orange",
+                    "weak": "red"
+                }.get(health.get("market_health", "unknown"), "gray")
+
+                # Market Health metric
+                col1.metric(
+                    "Market Health",
+                    (health.get("market_health") or "unknown").title(),
+                    f"{health.get('health_score', 0)*100:.1f}%"
+                )
+
+                # Opportunity Score metric
+                col2.metric(
+                    "Opportunity Score",
+                    f"{health.get('opportunity_score', 0)*10:.1f}/10",
+                    None
+                )
+
+                # Risk Level metric
+                risk_val = health.get("risk_level", 0.5)
+                risk_level = "Low" if risk_val < 0.3 else "Medium" if risk_val < 0.7 else "High"
+                col3.metric(
+                    "Risk Level",
+                    risk_level,
+                    None
+                )
+
+                # Optional: show growth segments if present
+                if health.get("growth_segments"):
+                    st.subheader("Growth Segments")
+                    st.write(", ".join(health["growth_segments"]))
 
 # Footer
 st.markdown("---")

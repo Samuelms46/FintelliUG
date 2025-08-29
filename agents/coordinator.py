@@ -12,17 +12,18 @@ class CoordinatorAgent:
         self.db_manager = DatabaseManager()
         app_logger.info("CoordinatorAgent initialized")
     
-    def synthesize_insights(self, social_insights: List[Dict], competitor_insights: List[Dict], 
-                           sentiment_insights: List[Dict]) -> Dict:
-        """
-        Synthesize insights from all specialized agents into a comprehensive report
-        """
+    def synthesize_insights(self,
+                            social_insights: List[Dict[str, Any]], 
+                            competitor_mentions: List[Dict[str, Any]], 
+                           market_insights: List[Dict[str, Any]],
+                            market_analysis: Dict[str, Any] = None):
+        """Synthesize insights from multiple agents into a coherent analysis."""
         try:
             # Prepare data for synthesis
             insights_data = {
                 "social_insights": social_insights,
-                "competitor_insights": competitor_insights,
-                "sentiment_insights": sentiment_insights
+                "competitor_mentions": competitor_mentions,
+                "market_insights": market_insights
             }
             
             prompt = f"""
@@ -63,18 +64,31 @@ class CoordinatorAgent:
             json_match = re.search(r'\{.*\}', result, re.DOTALL)
             
             if json_match:
-                synthesized_insights = json.loads(json_match.group())
+                synthesized = json.loads(json_match.group())
+
+                # Add market analysis if available
+                if market_analysis and "health_indicators" in market_analysis:
+                    health = market_analysis["health_indicators"]
+                    synthesized["market_health"] = health.get("market_health", "unknown")
+                    synthesized["opportunity_score"] = health.get("opportunity_score", 0.5)
+                    synthesized["risk_level"] = health.get("risk_level", 0.5)
+                    synthesized["growth_segments"] = health.get("growth_segments", [])
+
+                # Add investment opportunities if available
+                if market_analysis and "investment_opportunities" in market_analysis:
+                    synthesized["investment_opportunities"] = market_analysis["investment_opportunities"]
+
                 app_logger.info("Successfully synthesized insights from all agents")
-                return synthesized_insights
+                return synthesized
             else:
                 app_logger.error("Failed to parse JSON from coordinator agent response")
-                return self._generate_fallback_insights(social_insights, competitor_insights, sentiment_insights)
+                return self._generate_fallback_insights(social_insights, competitor_mentions, market_insights)
                 
         except Exception as e:
             app_logger.error(f"Error in coordinator agent: {e}")
-            return self._generate_fallback_insights(social_insights, competitor_insights, sentiment_insights)
+            return self._generate_fallback_insights(social_insights, competitor_mentions, market_insights)
     
-    def _generate_fallback_insights(self, social_insights, competitor_insights, sentiment_insights):
+    def _generate_fallback_insights(self, social_insights, competitor_mentions, market_insights):
         """Generate fallback insights when LLM fails"""
         return {
             "executive_summary": "Synthesized analysis of Uganda fintech market trends",

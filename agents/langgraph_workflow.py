@@ -3,6 +3,7 @@ from .state import AgentState
 from database.db_manager import DatabaseManager
 from database.models import SocialMediaPost
 from .competitor_agent import CompetitorAnalysisAgent
+from .market_sentiment_agent import MarketSentimentAgent
 from .coordinator import CoordinatorAgent
 from .social_intel_agent import SocialIntelAgent
 import json
@@ -14,6 +15,7 @@ class MultiAgentWorkflow:
         self.competitor_agent = CompetitorAnalysisAgent()
         self.coordinator_agent = CoordinatorAgent()
         self.social_agent = SocialIntelAgent({})  # Initialize with empty config
+        self.market_sentiment_agent = MarketSentimentAgent()
         self.workflow = self._build_workflow()
     
     def _build_workflow(self):
@@ -24,6 +26,7 @@ class MultiAgentWorkflow:
         workflow.add_node("fetch_data", self.fetch_data)
         workflow.add_node("process_posts", self.process_posts)
         workflow.add_node("social_intelligence", self.social_intelligence)
+        workflow.add_node("analyze_market_sentiment", self.analyze_market_sentiment)
         workflow.add_node("analyze_competitors", self.analyze_competitors)
         workflow.add_node("generate_insights", self.generate_insights)
         workflow.add_node("compile_report", self.compile_report)
@@ -32,7 +35,8 @@ class MultiAgentWorkflow:
         workflow.set_entry_point("fetch_data")
         workflow.add_edge("fetch_data", "process_posts")
         workflow.add_edge("process_posts", "social_intelligence")
-        workflow.add_edge("social_intelligence", "analyze_competitors")
+        workflow.add_edge("social_intelligence", "analyze_market_sentiment")
+        workflow.add_edge("analyze_market_sentiment", "analyze_competitors")
         workflow.add_edge("analyze_competitors", "generate_insights")
         workflow.add_edge("generate_insights", "compile_report")
         workflow.add_edge("compile_report", END)
@@ -128,6 +132,49 @@ class MultiAgentWorkflow:
         except Exception as e:
             print(f"Error in social intelligence: {e}")
             return {"social_insights": []}
+    
+    def analyze_market_sentiment(self, state: AgentState) -> AgentState:
+        """Analyze market sentiment and trends"""
+        try:
+            # Get processed posts
+            processed_posts = state["processed_posts"]
+            
+            # Convert to format expected by market sentiment agent
+            posts_for_analysis = []
+            for post in processed_posts:
+                # Get full post from database
+                session = self.db_manager.get_session()
+                try:
+                    db_post = session.query(SocialMediaPost).get(post["post_id"])
+                    if db_post:
+                        posts_for_analysis.append({
+                            "text": db_post.cleaned_content or db_post.content,
+                            "source": db_post.source,
+                            "timestamp": db_post.timestamp.isoformat() if db_post.timestamp else datetime.now().isoformat(),
+                            "sentiment": db_post.sentiment,
+                            "sentiment_score": db_post.sentiment_score
+                        })
+                finally:
+                    session.close()
+            
+            # Run market sentiment analysis
+            market_result = self.market_sentiment_agent.process({
+                "posts": posts_for_analysis
+            })
+            
+            return {
+                "market_analysis": market_result,
+                "market_health": market_result.get("health_indicators", {}).get("market_health", "unknown"),
+                "investment_opportunities": market_result.get("investment_opportunities", [])
+            }
+            
+        except Exception as e:
+            print(f"Error in market sentiment analysis: {e}")
+            return {
+                "market_analysis": {},
+                "market_health": "unknown",
+                "investment_opportunities": []
+            }
     
     def analyze_competitors(self, state: AgentState) -> AgentState:
         """Analyze competitor mentions in processed posts"""

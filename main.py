@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 FintelliUG - Main Entry Point
 Uganda Fintech Intelligence Platform
