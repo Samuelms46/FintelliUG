@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 FintelliUG Setup Script
 Installs dependencies and sets up the project environment

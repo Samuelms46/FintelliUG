@@ -26,7 +26,7 @@ class BaseAgent(ABC):
         """Initialize the agent with Groq LLM, ChromaDB, Redis, and Azure embeddings from .env.
         """
         self.name = name
-        # Initialize logger early 
+        # Initializes logger early 
         self.logger = logging.getLogger(f"agent.{name}")
         if not self.logger.handlers:
             self.logger.setLevel(logging.INFO)
