@@ -159,5 +159,4 @@ Day 7
 ---
 
 ## Notes
-- Create .zencoder/rules/repo.md for richer repo metadata (optional, recommended)
 - Keep UI simple and fast; handle errors visibly; prefer clarity over complexity
