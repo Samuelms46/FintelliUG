@@ -12,6 +12,11 @@ class AgentState(TypedDict):
     competitor_mentions: List[dict]
     market_insights: List[dict]
     
+    # Additional market analysis fields
+    market_analysis: Optional[dict]
+    market_health: Optional[str]
+    investment_opportunities: List[dict]
+    
     # Final output
     final_report: Optional[dict]
     errors: List[str]

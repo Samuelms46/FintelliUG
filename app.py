@@ -1,187 +1,346 @@
+import json
+from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
+from config import Config
 from database.db_manager import DatabaseManager
+from database.models import Insight
 from data_processing.processor import DataProcessor
+from data_collection.reddit_collector import RedditDataCollector
 from agents.social_intel_agent import SocialIntelAgent
 from agents.competitor_agent import CompetitorAnalysisAgent
 from agents.market_sentiment_agent import MarketSentimentAgent
 from agents.langgraph_workflow import MultiAgentWorkflow
 from utils.helpers import format_timestamp, time_ago, safe_json_loads
-from config import Config
-import json
 
 
-# Social Intelligence section
-st.subheader("Social Intelligence")
+# ===== Helper Functions =====
 
-social_query = st.text_input(
-    "Social search query:",
-    value="Uganda fintech",
-    key="social_query"
-)
-social_max = st.slider("Max results", 5, 50, 20, key="social_max")
+class LoadingStateManager:
+    """Manages loading states for different operations."""
+    def __init__(self):
+        if "loading_states" not in st.session_state:
+            st.session_state.loading_states = {}
+    
+    def start_loading(self, key, message="Loading..."):
+        st.session_state.loading_states[key] = {"active": True, "message": message}
+        return st.spinner(message)
+    
+    def stop_loading(self, key):
+        if key in st.session_state.loading_states:
+            st.session_state.loading_states[key]["active"] = False
+    
+    def is_loading(self, key):
+        return key in st.session_state.loading_states and st.session_state.loading_states[key]["active"]
 
-if st.button("Run Social Intelligence", key="run_social"):
-    with st.spinner("Running social intelligence..."):
-        try:
-            agent = SocialIntelAgent(config={})  # config not used, but required by signature
-            result = agent.process({"query": social_query, "max_results": social_max})
 
+def init_session_state():
+    """Initialize session state variables."""
+    if 'components' not in st.session_state:
+        st.session_state.components = None
+    if 'recent_posts' not in st.session_state:
+        st.session_state.recent_posts = None
+    if 'last_analysis_time' not in st.session_state:
+        st.session_state.last_analysis_time = None
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = {}
+    if 'use_mock_data' not in st.session_state:
+        st.session_state.use_mock_data = True
+
+
+def display_metrics(title, metrics_dict):
+    """Display a set of metrics in columns."""
+    st.subheader(title)
+    cols = st.columns(len(metrics_dict))
+    for i, (label, value) in enumerate(metrics_dict.items()):
+        cols[i].metric(label, value)
+
+
+def display_insights(insights_list, max_items=5):
+    """Display a list of insights with consistent formatting."""
+    if not insights_list:
+        st.info("No insights available.")
+        return
+        
+    for i, insight in enumerate(insights_list[:max_items], start=1):
+        text = insight.get("insight") or insight.get("text") or str(insight)
+        st.write(f"{i}. {text}")
+
+
+def safe_agent_call(agent_func, error_message, *args, **kwargs):
+    """Safely call an agent function with proper error handling."""
+    try:
+        return agent_func(*args, **kwargs)
+    except Exception as e:
+        st.error(f"{error_message}: {str(e)}")
+        st.info("Check logs for more details.")
+        return {"error": str(e)}
+
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_recent_posts(_db_manager, hours=48, limit=None):
+    """Get recent posts with caching.
+    
+    Note: _db_manager has a leading underscore to tell Streamlit not to hash it.
+    """
+    if limit:
+        return _db_manager.get_recent_posts(limit=limit)
+    return _db_manager.get_recent_posts(hours=hours)
+
+
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def run_social_intelligence(query, max_results, use_mock=False):
+    """Run social intelligence analysis with caching."""
+    agent = SocialIntelAgent(config={})
+    if use_mock:
+        # Import and use the enhanced mock data
+        from utils.mock_data import get_enhanced_mock_data
+        return agent.process({"posts": get_enhanced_mock_data()})
+    else:
+        return agent.process({"query": query, "max_results": max_results})
+
+
+def get_mock_posts():
+    """Return mock posts for testing."""
+    return [
+        {
+            "source": "reddit",
+            "content": "MTN Mobile Money fees are getting too high. Thinking of switching to Airtel.",
+            "author": "uganda_user123",
+            "url": "https://reddit.com/r/uganda/123",
+            "timestamp": datetime.utcnow() - timedelta(hours=2)
+        },
+        {
+            "source": "twitter",
+            "content": "Airtel Money has better network coverage in my village than MTN. Finally can send money home easily!",
+            "author": "rural_user",
+            "url": "https://twitter.com/user/123",
+            "timestamp": datetime.utcnow() - timedelta(hours=5)
+        },
+        {
+            "source": "news",
+            "content": "Bank of Uganda announces new regulations for mobile money providers. Will this increase costs for consumers?",
+            "author": "BusinessDaily",
+            "url": "https://businessdaily.ug/123",
+            "timestamp": datetime.utcnow() - timedelta(days=1)
+        }
+    ]
+
+
+def run_intelligence_workflow(progress_callback=None):
+    """Run the multi-agent workflow with optional progress indicators."""
+    workflow = MultiAgentWorkflow()
+    
+    if progress_callback:
+        # Run with progress updates
+        return workflow.run()
+    else:
+        # Run without progress updates
+        return workflow.run()
+
+
+# ===== Component Initialization =====
+
+def initialize_components():
+    """Initialize and return all required components."""
+    try:
+        components = {
+            "db_manager": DatabaseManager(),
+            "data_processor": DataProcessor(),
+            "competitor_agent": CompetitorAnalysisAgent(),
+            "reddit_collector": RedditDataCollector()
+        }
+        return components
+    except Exception as e:
+        st.error(f"Failed to initialize components: {str(e)}")
+        st.info("Please check your environment configuration and API keys")
+        st.stop()
+
+
+# ===== UI Rendering Functions =====
+
+def render_header():
+    """Render the app header and description."""
+    st.title("💹 FintelliUG - Uganda Fintech Intelligence Platform")
+    st.markdown("""
+    Agentic audience insights platform for Uganda's fintech ecosystem.
+    Monitor social conversations, analyze sentiment, and generate competitive intelligence.
+    """)
+
+
+def render_social_intelligence_section(components):
+    """Render the social intelligence section."""
+    st.subheader("Social Intelligence")
+
+    use_mock_data = st.checkbox("Use enhanced mock data", value=False, key="use_enhanced_mock")
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        social_query = st.text_input(
+            "Social search query:",
+            value="Uganda fintech",
+            key="social_query",
+            disabled=use_mock_data  # Disable when using mock data
+        )
+    
+    with col2:
+        social_max = st.slider(
+            "Max results", 
+            5, 50, 20, 
+            key="social_max",
+            disabled=use_mock_data  # Disable when using mock data
+        ) 
+    
+    if st.button("Run Social Intelligence", key="run_social"):
+        with st.spinner("Running social intelligence..."):
+            result = safe_agent_call(
+                run_social_intelligence,
+                "Failed to run social intelligence",
+                social_query,
+                social_max, 
+                use_mock_data
+            )
+            
             if result.get("error"):
                 st.error(result["error"])
             else:
                 # High-level metrics
-                cols = st.columns(3)
-                cols[0].metric("Posts Processed", result.get("posts_processed", 0))
-                cols[1].metric("Relevant Posts", result.get("relevant_posts", 0))
-                dq = result.get("data_quality_score", 0)
-                cols[2].metric("Data Quality", f"{dq*100:.1f}%")
-
+                metrics = {
+                    "Posts Processed": result.get("posts_processed", 0),
+                    "Relevant Posts": result.get("relevant_posts", 0),
+                    "Data Quality": f"{result.get('data_quality_score', 0)*100:.1f}%"
+                }
+                display_metrics("Overview", metrics)
+                
                 # Sentiment summary
                 sa = result.get("sentiment_analysis", {}) or {}
+                if isinstance(sa, str):
+                    import json
+                    try:
+                        sa = json.loads(sa)
+                    except:
+                        sa = {}
                 st.markdown("### Sentiment Overview")
                 st.write(f"Overall: {sa.get('overall_sentiment', 'unknown').title()}")
                 st.write(f"Score: {sa.get('sentiment_score', 0):.2f}")
-
+                
                 # Trending topics
                 topics = result.get("trending_topics", []) or []
                 if topics:
                     st.markdown("### Trending Topics")
                     for t in topics[:5]:
+                        if isinstance(t, str):
+                            try:
+                                t = json.loads(t)
+                            except:
+                                t = {'topic': 'topic', 'mention_count': 0}
                         st.write(f"- {t.get('topic', 'topic')} ({t.get('mention_count', 0)} mentions)")
-
+                
                 # Insights
                 insights = result.get("insights", []) or []
                 if insights:
                     st.markdown("### Insights")
-                    for i, ins in enumerate(insights[:5], start=1):
-                        text = ins.get("insight") or ins.get("text") or str(ins)
-                        st.write(f"{i}. {text}")
-
+                    display_insights(insights)
+                
                 # Optional: inspect raw payload
                 with st.expander("Show raw result"):
                     st.json(result)
 
-        except Exception as e:
-            st.error(f"Failed to run SocialIntelAgent: {e}")
-from data_collection.reddit_collector import RedditDataCollector
-from database.models import Insight
 
-# Set page config
-st.set_page_config(
-    page_title="FintelliUG - Uganda Fintech Intelligence",
-    page_icon="💹",
-    layout="wide"
-)
-
-# Initialize components
-try:
-    db_manager = DatabaseManager()
-    data_processor = DataProcessor()
-    competitor_agent = CompetitorAnalysisAgent()
-    reddit_collector = RedditDataCollector()
-except Exception as e:
-    st.error(f"Failed to initialize components: {str(e)}")
-    st.info("Please check your environment configuration and API keys")
-    st.stop()
-
-# App title
-st.title("💹 FintelliUG - Uganda Fintech Intelligence Platform")
-st.markdown("""
-Agentic audience insights platform for Uganda's fintech ecosystem.
-Monitor social conversations, analyze sentiment, and generate competitive intelligence.
-""")
-
-# Sidebar
-st.sidebar.header("Controls")
-
-# ADDING REDDIT COLLECTION TO SIDEBAR
-st.sidebar.header("Data Collection")
-
-if st.sidebar.button("🌐 Collect from Reddit"):
-    with st.spinner("Collecting data from Reddit..."):
-        try:
-            results = data_processor.collect_reddit_data(limit=15)
-            st.sidebar.success(f"Collected and processed {len(results)} posts from Reddit")
-        except Exception as e:
-            st.sidebar.error(f"Error collecting from Reddit: {e}")
-
-# ADD REDDIT-SPECIFIC SEARCH
-reddit_query = st.sidebar.text_input("Reddit Search Query:", value="Uganda fintech")
-reddit_limit = st.sidebar.slider("Number of posts:", 5, 50, 15)
-
-if st.sidebar.button("🔍 Custom Reddit Search"):
-    with st.spinner(f"Searching Reddit for '{reddit_query}'..."):
-        try:
-            results = data_processor.collect_reddit_data(query=reddit_query, limit=reddit_limit)
-            st.sidebar.success(f"Found and processed {len(results)} posts")
-        except Exception as e:
-            st.sidebar.error(f"Search failed: {e}")
-
-# SIDEBAR CONTROLS
-if st.sidebar.button("🔄 Collect & Process New Data"):
-    with st.spinner("Collecting and processing data..."):
-        # This would fetch real data in production
-        # For demonstrating this with a mock data/information
-        mock_posts = [
-            {
-                "source": "reddit",
-                "content": "MTN Mobile Money fees are getting too high. Thinking of switching to Airtel.",
-                "author": "uganda_user123",
-                "url": "https://reddit.com/r/uganda/123",
-                "timestamp": datetime.utcnow() - timedelta(hours=2)
-            },
-            {
-                "source": "twitter",
-                "content": "Airtel Money has better network coverage in my village than MTN. Finally can send money home easily!",
-                "author": "rural_user",
-                "url": "https://twitter.com/user/123",
-                "timestamp": datetime.utcnow() - timedelta(hours=5)
-            },
-            {
-                "source": "news",
-                "content": "Bank of Uganda announces new regulations for mobile money providers. Will this increase costs for consumers?",
-                "author": "BusinessDaily",
-                "url": "https://businessdaily.ug/123",
-                "timestamp": datetime.utcnow() - timedelta(days=1)
-            }
-        ]
-        
-        results = data_processor.batch_process(mock_posts)
-        st.sidebar.success(f"Processed {len(results)} posts")
-
-if st.sidebar.button("🤖 Run Intelligence Workflow"):
-    with st.spinner("Running multi-agent workflow..."):
-        try:
-            workflow = MultiAgentWorkflow()
-            result = workflow.run()
-            st.sidebar.success("Workflow completed!")
+def render_sidebar(components):
+    """Render the sidebar with controls."""
+    st.sidebar.header("Controls")
+    
+    # Configuration panel
+    with st.sidebar.expander("⚙️ Configuration"):
+        st.checkbox("Use mock data", value=True, key="use_mock_data")
+        st.number_input("Default analysis period (hours)", 1, 720, 48, key="default_analysis_period")
+        st.selectbox("Default sentiment model", ["Basic", "Advanced"], key="sentiment_model")
+        st.checkbox("Auto-refresh data", value=False, key="auto_refresh")
+        st.slider("Auto-refresh interval (minutes)", 5, 60, 15, key="refresh_interval")
+    
+    # Data Collection section
+    st.sidebar.header("Data Collection")
+    
+    # Reddit collection
+    if st.sidebar.button("🌐 Collect from Reddit"):
+        with st.spinner("Collecting data from Reddit..."):
+            try:
+                results = components["data_processor"].collect_reddit_data(limit=15)
+                st.sidebar.success(f"Collected and processed {len(results)} posts from Reddit")
+            except Exception as e:
+                st.sidebar.error(f"Error collecting from Reddit: {e}")
+    
+    # Reddit search
+    reddit_query = st.sidebar.text_input("Reddit Search Query:", value="Uganda fintech")
+    reddit_limit = st.sidebar.slider("Number of posts:", 5, 50, 15)
+    
+    if st.sidebar.button("🔍 Custom Reddit Search"):
+        with st.spinner(f"Searching Reddit for '{reddit_query}'..."):
+            try:
+                results = components["data_processor"].collect_reddit_data(query=reddit_query, limit=reddit_limit)
+                st.sidebar.success(f"Found and processed {len(results)} posts")
+            except Exception as e:
+                st.sidebar.error(f"Search failed: {e}")
+    
+    # General data collection
+    if st.sidebar.button("🔄 Collect & Process New Data"):
+        with st.spinner("Collecting and processing data..."):
+            if st.session_state.use_mock_data:
+                results = components["data_processor"].batch_process(get_mock_posts())
+            else:
+                # This would fetch real data in production
+                results = components["data_processor"].collect_real_data()
+            st.sidebar.success(f"Processed {len(results)} posts")
+    
+    # Intelligence workflow
+    if st.sidebar.button("🤖 Run Intelligence Workflow"):
+        with st.spinner("Running multi-agent workflow..."):
+            # Create a progress bar
+            progress_bar = st.sidebar.progress(0)
+            status_text = st.sidebar.empty()
             
-            # Show workflow results
-            if result and 'final_report' in result:
-                st.sidebar.info(f"Processed {result['final_report'].get('metrics', {}).get('posts_processed', 0)} posts")
-                st.sidebar.info(f"Generated {result['final_report'].get('metrics', {}).get('market_insights', 0)} insights")
-        except Exception as e:
-            st.sidebar.error(f"Workflow failed: {str(e)}")
-            st.sidebar.info("Check your API keys and environment configuration")
+            # Define a callback for progress updates
+            def progress_callback(step, total_steps, message):
+                progress = int(step / total_steps * 100)
+                progress_bar.progress(progress)
+                status_text.text(message)
+            
+            try:
+                result = run_intelligence_workflow(progress_callback)
+                
+                # Clear the progress indicators
+                progress_bar.empty()
+                status_text.empty()
+                
+                st.sidebar.success("Workflow completed!")
+                
+                # Show workflow results
+                if result and 'final_report' in result:
+                    metrics = {
+                        "Posts Processed": result['final_report'].get('metrics', {}).get('posts_processed', 0),
+                        "Insights Generated": result['final_report'].get('metrics', {}).get('market_insights', 0)
+                    }
+                    st.sidebar.write("Workflow Results:")
+                    for key, value in metrics.items():
+                        st.sidebar.info(f"{key}: {value}")
+            except Exception as e:
+                # Clear the progress indicators
+                progress_bar.empty()
+                status_text.empty()
+                
+                st.sidebar.error(f"Workflow failed: {str(e)}")
+                st.sidebar.info("Check your API keys and environment configuration")
 
-# Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📈 Dashboard", 
-    "💬 Social Posts", 
-    "🏢 Competitor Analysis",
-    "🔍 Vector Search",
-    "📋 Insights"
-    "📊 Market Health"
-])
 
-with tab1:
+def render_dashboard_tab(components):
+    """Render the Dashboard tab."""
     st.header("Market Overview")
     
     # Get recent posts for analytics
-    recent_posts = db_manager.get_recent_posts(hours=48)
+    recent_posts = get_recent_posts(components["db_manager"], hours=48)
     
     if recent_posts:
         # Sentiment distribution
@@ -222,10 +381,12 @@ with tab1:
     else:
         st.info("No data available. Click 'Collect & Process New Data' to get started.")
 
-with tab2:
+
+def render_social_posts_tab(components):
+    """Render the Social Posts tab."""
     st.header("Recent Social Media Posts")
     
-    posts = db_manager.get_recent_posts(limit=50)
+    posts = get_recent_posts(components["db_manager"], limit=50)
     if posts:
         for post in posts:
             with st.expander(f"{post.source.title()} post by {post.author} - {time_ago(post.timestamp)}"):
@@ -257,55 +418,75 @@ with tab2:
     else:
         st.info("No posts found. Collect some data first.")
 
-with tab3:
+
+def render_competitor_analysis_tab(components):
+    """Render the Competitor Analysis tab."""
     st.header("Competitor Analysis")
     
     if st.button("Analyze Competitor Mentions"):
         with st.spinner("Analyzing competitor data..."):
-            report = competitor_agent.generate_competitive_intelligence(hours=24)
+            report = safe_agent_call(
+                components["competitor_agent"].process,
+                "Failed to analyze competitor data",
+                {"hours": 24}
+            )
             
-            st.subheader("Competitive Intelligence Summary")
-            st.write(f"Period: Last {report['time_period_hours']} hours")
-            st.write(f"Total competitor mentions: {report['total_mentions']}")
-            
-            competitor_items = report.get('competitor_insights') or report.get('competitor_mentions', [])
-            if competitor_items:
-                # Competitor sentiment
-                competitor_sentiment = {}
-                for insight in competitor_items:
-                    competitor = insight['competitor']
-                    sentiment = insight['sentiment']
-                    
-                    if competitor not in competitor_sentiment:
-                        competitor_sentiment[competitor] = {'positive': 0, 'negative': 0, 'neutral': 0}
-                    
-                    competitor_sentiment[competitor][sentiment] += 1
-                
-                # Display sentiment by competitor
-                for competitor, sentiments in competitor_sentiment.items():
-                    total = sum(sentiments.values())
-                    st.subheader(competitor)
-                    
-                    cols = st.columns(3)
-                    cols[0].metric("Positive", sentiments['positive'], 
-                                  f"{(sentiments['positive']/total*100):.1f}%")
-                    cols[1].metric("Negative", sentiments['negative'],
-                                  f"{(sentiments['negative']/total*100):.1f}%")
-                    cols[2].metric("Neutral", sentiments['neutral'],
-                                  f"{(sentiments['neutral']/total*100):.1f}%")
-            
-            # Summary insights
-            if report.get('summary'):
-                st.subheader("Key Insights")
-                for insight in report['summary']:
-                    st.info(f"{insight.get('text', '')} (Confidence: {insight.get('confidence', 0)*100:.1f}%)")
+            if report.get("error"):
+                st.error(report["error"])
             else:
-                st.info("No insights generated from competitor analysis")
+                st.subheader("Competitive Intelligence Summary")
+                st.write(f"Period: Last {report['time_period_hours']} hours")
+                st.write(f"Total competitor mentions: {report['total_mentions']}")
+                
+                competitor_items = report.get('competitor_insights') or report.get('competitor_mentions', [])
+                if competitor_items:
+                    # Competitor sentiment
+                    competitor_sentiment = {}
+                    for insight in competitor_items:
+                        if isinstance(insight, str):
+                            try:
+                                insight = json.loads(insight)
+                            except:
+                                insight = {'competitor': 'unknown', 'sentiment': 'neutral'}
+                        competitor = insight.get('competitor')
+                        sentiment = insight.get('sentiment')
+                        
+                        if competitor not in competitor_sentiment:
+                            competitor_sentiment[competitor] = {'positive': 0, 'negative': 0, 'neutral': 0}
+                        
+                        competitor_sentiment[competitor][sentiment] += 1
+                    
+                    # Display sentiment by competitor
+                    for competitor, sentiments in competitor_sentiment.items():
+                        total = sum(sentiments.values())
+                        st.subheader(competitor)
+                        
+                        cols = st.columns(3)
+                        cols[0].metric("Positive", sentiments['positive'], 
+                                      f"{(sentiments['positive']/total*100):.1f}%")
+                        cols[1].metric("Negative", sentiments['negative'],
+                                      f"{(sentiments['negative']/total*100):.1f}%")
+                        cols[2].metric("Neutral", sentiments['neutral'],
+                                      f"{(sentiments['neutral']/total*100):.1f}%")
+                
+                # Summary insights
+                if report.get('summary'):
+                    st.subheader("Key Insights")
+                    for insight in report['summary']:
+                        if isinstance(insight, str):
+                            try:
+                                insight = json.loads(insight)
+                            except:
+                                insight = {'text': 'No insight available', 'confidence': 0}
+                        st.info(f"{insight.get('text', '')} (Confidence: {insight.get('confidence', 0)*100:.1f}%)")
+                else:
+                    st.info("No insights generated from competitor analysis")
     else:
         st.info("Click the button to analyze competitor mentions")
 
-# VECTOR SEARCH TAB 
-with tab4:
+
+def render_vector_search_tab(components):
+    """Render the Vector Search tab."""
     st.header("Vector Search")
     
     st.subheader("Search Similar Content")
@@ -313,7 +494,7 @@ with tab4:
     
     if st.button("Search", key="search_btn") and search_query:
         with st.spinner("Searching similar content..."):
-            results = db_manager.search_similar_posts(search_query, n_results=5)
+            results = components["db_manager"].search_similar_posts(search_query, n_results=5)
             
             if results:
                 st.success(f"Found {len(results)} similar posts")
@@ -332,7 +513,7 @@ with tab4:
     
     if st.button("Search by Topic", key="topic_btn") and selected_topic != "All Topics":
         with st.spinner(f"Searching for {selected_topic} content..."):
-            results = db_manager.search_posts_by_topic(selected_topic, n_results=8)
+            results = components["db_manager"].search_posts_by_topic(selected_topic, n_results=8)
             
             if results:
                 st.success(f"Found {len(results)} posts about {selected_topic}")
@@ -346,15 +527,16 @@ with tab4:
     
     st.subheader("Vector Database Statistics")
     if st.button("Show Stats", key="stats_btn"):
-        stats = db_manager.get_vector_db_stats()
+        stats = components["db_manager"].get_vector_db_stats()
         st.metric("Total Documents in Vector DB", stats["total_documents"])
         st.write(f"Collection: {stats['collection_name']}")
 
-# INSIGHTS TAB
-with tab5:
+
+def render_insights_tab(components):
+    """Render the Insights tab."""
     st.header("AI-Generated Insights")
     
-    insights = db_manager.get_session().query(Insight).order_by(Insight.created_at.desc()).limit(10).all()
+    insights = components["db_manager"].get_session().query(Insight).order_by(Insight.created_at.desc()).limit(10).all()
     
     if insights:
         for insight in insights:
@@ -367,7 +549,9 @@ with tab5:
     else:
         st.info("No insights yet. Run the intelligence workflow to generate insights.")
 
-with tab6:
+
+def render_market_health_tab(components):
+    """Render the Market Health tab."""
     st.header("Market Health Analysis")
 
     time_period = st.selectbox(
@@ -386,17 +570,26 @@ with tab6:
 
             # Run market sentiment analysis
             market_agent = MarketSentimentAgent()
-            result = market_agent.process({"hours": hours})
+            result = safe_agent_call(
+                market_agent.process,
+                "Failed to analyze market health",
+                {"hours": hours}
+            )
 
-            if "error" in result and result["error"]:
+            if result.get("error"):
                 st.error(result["error"])
             else:
                 health = result["health_indicators"]
+                if isinstance(health, str):
+                    try:
+                        health = json.loads(health)
+                    except:
+                        health = {"market_health": "unknown", "health_score": 0, "opportunity_score": 0, "risk_level": 0.5}
 
                 # Create columns for metrics
                 col1, col2, col3 = st.columns(3)
 
-                # Market health status with color (reserved for future styling)
+                # Market health status with color
                 health_color = {
                     "strong": "green",
                     "stable": "blue",
@@ -430,8 +623,83 @@ with tab6:
                 # Optional: show growth segments if present
                 if health.get("growth_segments"):
                     st.subheader("Growth Segments")
-                    st.write(", ".join(health["growth_segments"]))
+                    if isinstance(health.get("growth_segments"), list):
+                        st.write(", ".join(health["growth_segments"]))
+                    else:
+                        st.write("No growth segments available")
 
-# Footer
-st.markdown("---")
-st.caption("FintelliUG MVP - Uganda Fintech Intelligence Platform")
+
+def render_footer():
+    """Render the app footer."""
+    st.markdown("---")
+    st.caption("FintelliUG MVP - Uganda Fintech Intelligence Platform")
+
+
+# ===== Main Application =====
+
+def main():
+    """Main application entry point."""
+    # Set page config
+    st.set_page_config(
+        page_title="FintelliUG - Uganda Fintech Intelligence",
+        page_icon="💹",
+        layout="wide"
+    )
+    
+    # Initialize session state
+    init_session_state()
+    
+    # Initialize loading state manager
+    loading_manager = LoadingStateManager()
+    
+    # Initialize components if not already done
+    if not st.session_state.components:
+        st.session_state.components = initialize_components()
+    
+    components = st.session_state.components
+    
+    # Render header
+    render_header()
+    
+    # Render social intelligence section
+    render_social_intelligence_section(components)
+    
+    # Render sidebar
+    render_sidebar(components)
+    
+    # Main content tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📈 Dashboard", 
+        "💬 Social Posts", 
+        "🏢 Competitor Analysis",
+        "🔍 Vector Search",
+        "📋 Insights",
+        "📊 Market Health"
+    ])
+    
+    # Render tab content
+    with tab1:
+        render_dashboard_tab(components)
+    
+    with tab2:
+        render_social_posts_tab(components)
+    
+    with tab3:
+        render_competitor_analysis_tab(components)
+    
+    with tab4:
+        render_vector_search_tab(components)
+    
+    with tab5:
+        render_insights_tab(components)
+    
+    with tab6:
+        render_market_health_tab(components)
+    
+    # Render footer
+    render_footer()
+
+
+# Run the application
+if __name__ == "__main__":
+    main()
