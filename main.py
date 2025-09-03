@@ -30,7 +30,6 @@ def setup_environment():
     # Create necessary directories
     directories = [
         "data",
-        "data/chroma_db", 
         "logs",
         "data_collection/cache"
     ]

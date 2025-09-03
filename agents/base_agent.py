@@ -54,8 +54,8 @@ class BaseAgent(ABC):
             azure_deployment=os.getenv("AZURE_EMBEDDING_BASE")
         )
         # Use a unique collection name for each agent to avoid conflicts
-        collection_name = f"fintelliug_{name.lower().replace(' ', '_')}_data"
-        persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
+        collection_name = f"fintelliug_{name.lower().replace(' ', '_')}"
+        persist_dir = os.getenv("CHROMA_PERSIST_DIR", "chroma_db")
         
         try:
             self.vector_store = Chroma(

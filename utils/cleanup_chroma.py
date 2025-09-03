@@ -21,9 +21,8 @@ def cleanup_chroma_db():
     
     # ChromaDB paths to check
     chroma_paths = [
-        "./data/chroma_db",
-        "./chroma_db", 
-        "./data/chroma_db/chroma.sqlite3"
+        "chroma_db",
+        "chroma_db/chroma.sqlite3"
     ]
     
     logger.info("🔍 Checking for ChromaDB conflicts...")
@@ -44,8 +43,8 @@ def cleanup_chroma_db():
     
     # Create fresh directory
     try:
-        os.makedirs("./data/chroma_db", exist_ok=True)
-        logger.info("✅ Created fresh ChromaDB directory: ./data/chroma_db")
+        os.makedirs("chroma_db", exist_ok=True)
+        logger.info("✅ Created fresh ChromaDB directory: chroma_db")
     except Exception as e:
         logger.error(f"Failed to create directory: {e}")
 
@@ -61,7 +60,7 @@ def reset_vector_database():
     # Also clean up any SQLite database files
     sqlite_files = [
         "./fintelliug.db",
-        "./data/fintelliug.db"
+        "fintelliug.db"
     ]
     
     for db_file in sqlite_files:
@@ -80,7 +79,7 @@ def check_chroma_status():
     
     logger.info("📊 Checking ChromaDB status...")
     
-    chroma_dir = "./data/chroma_db"
+    chroma_dir = "chroma_db"
     
     if os.path.exists(chroma_dir):
         files = os.listdir(chroma_dir)

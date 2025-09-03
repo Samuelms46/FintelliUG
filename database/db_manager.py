@@ -8,7 +8,7 @@ from typing import Dict, List
 
 class DatabaseManager:
     def __init__(self):
-        # Enable pool_pre_ping to avoid stale connections; tune pool size to reduce QueuePool overflows
+        # Enable pool_pre_ping to avoid stale connections-tune pool size to reduce QueuePool overflows
         self.engine = create_engine(
             Config.DATABASE_URL,
             pool_pre_ping=True,
@@ -160,3 +160,21 @@ class DatabaseManager:
     def get_vector_db_stats(self) -> Dict:
         """Get vector database statistics"""
         return self.vector_db.get_collection_stats()
+
+    def count_posts(self):
+        """Count total posts in database"""
+        session = self.get_session()
+        try:
+            return session.query(SocialMediaPost).count()
+        finally:
+            session.close()
+
+    def count_relevant_posts(self, min_relevance=0.3):
+        """Count posts with minimum relevance score"""
+        session = self.get_session()
+        try:
+           return session.query(SocialMediaPost).filter(
+            SocialMediaPost.relevance_score >= min_relevance
+          ).count()
+        finally:
+            session.close()        

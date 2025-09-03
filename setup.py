@@ -24,8 +24,7 @@ def create_directories():
     print("Creating project directories...")
     directories = [
         "data",
-        "data/chroma_db",
-        "logs", 
+        "logs",
         "data_collection/cache"
     ]
     

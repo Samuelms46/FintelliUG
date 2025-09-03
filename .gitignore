@@ -8,3 +8,4 @@ chroma_db/
 fintelliug.db
 logs/
 .pytest_cache/
+data/

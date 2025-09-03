@@ -18,9 +18,8 @@ class CoordinatorAgent(BaseAgent):
 		"""Required abstract method implementation for BaseAgent."""
 		return {"status": "coordinator_process_not_implemented"}
 
-	# ----------------------
 	# Internal helper methods
-	# ----------------------
+	
 	def parse_llm_json(self, response_text: str) -> Dict[str, Any]:
 		"""Robustly parse JSON from LLM text output."""
 		try:
@@ -65,9 +64,8 @@ class CoordinatorAgent(BaseAgent):
 
 		return synthesized
 
-	# ----------------------
 	# Public methods
-	# ----------------------
+
 	def synthesize_insights(self,
 						social_insights: Optional[List[Dict[str, Any]]],
 						competitor_mentions: Optional[List[Dict[str, Any]]],
@@ -335,3 +333,4 @@ class CoordinatorAgent(BaseAgent):
 			],
 			"confidence": 0.7,
 		}
+	 
