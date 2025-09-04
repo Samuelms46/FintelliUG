@@ -10,6 +10,8 @@ class CompetitorAnalysisAgent(BaseAgent):
     def __init__(self, config: Dict[str, Any] = None):
         """Initialize the CompetitorAnalysisAgent with base infrastructure."""
         super().__init__("competitor_analysis")
+        self.logger.info("Initializing CompetitorAnalysisAgent")
+
         
         # Competitor-specific configuration
         self.config = config or {}
@@ -382,4 +384,5 @@ class CompetitorAnalysisAgent(BaseAgent):
             time_diff = current_time - post_time.replace(tzinfo=None)
             return time_diff <= timedelta(hours=hours)
         except Exception:
-            return True  # Include posts with invalid timestamps
+            return True  # Include posts with invalid timestamps        
+ 

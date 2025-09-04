@@ -23,7 +23,6 @@ def create_directories():
     """Create necessary directories"""
     print("Creating project directories...")
     directories = [
-        "data",
         "logs",
         "data_collection/cache"
     ]

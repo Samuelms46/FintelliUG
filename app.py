@@ -47,6 +47,18 @@ def init_session_state():
         st.session_state.analysis_results = {}
     if 'use_mock_data' not in st.session_state:
         st.session_state.use_mock_data = True
+    if 'social_last_run' not in st.session_state:
+        st.session_state.social_last_run = None
+    if 'market_last_run' not in st.session_state:
+        st.session_state.market_last_run = None
+    if 'competitor_last_run' not in st.session_state:
+        st.session_state.competitor_last_run = None
+    if 'social_last_result' not in st.session_state:
+        st.session_state.social_last_result = None
+    if 'workflow_last_result' not in st.session_state:
+        st.session_state.workflow_last_result = None
+    if 'workflow_last_run' not in st.session_state:
+        st.session_state.workflow_last_run = None
 
 
 def display_metrics(title, metrics_dict):
@@ -167,6 +179,19 @@ def render_header():
     Agentic audience insights platform for Uganda's fintech ecosystem.
     Monitor social conversations, analyze sentiment, and generate competitive intelligence.
     """)
+    # Last-run and cache info
+    statuses = []
+    if st.session_state.get('social_last_run'):
+        statuses.append(f"Social: {time_ago(st.session_state.social_last_run)}")
+    if st.session_state.get('competitor_last_run'):
+        statuses.append(f"Competitor: {time_ago(st.session_state.competitor_last_run)}")
+    if st.session_state.get('market_last_run'):
+        statuses.append(f"Market: {time_ago(st.session_state.market_last_run)}")
+    if st.session_state.get('workflow_last_run'):
+        statuses.append(f"Workflow: {time_ago(st.session_state.workflow_last_run)}")
+    if statuses:
+        st.caption("Last runs — " + " | ".join(statuses))
+    st.caption("Cache TTLs — Recent posts: 1h, Social intelligence: 30m")
 
 
 def render_social_intelligence_section(components):
@@ -319,6 +344,8 @@ def render_sidebar(components):
                 
                 # Show workflow results
                 if result and 'final_report' in result:
+                    st.session_state.workflow_last_result = result
+                    st.session_state.workflow_last_run = datetime.utcnow()
                     metrics = {
                         "Posts Processed": result['final_report'].get('metrics', {}).get('posts_processed', 0),
                         "Insights Generated": result['final_report'].get('metrics', {}).get('market_insights', 0)
@@ -341,6 +368,44 @@ def render_dashboard_tab(components):
     
     # Get recent posts for analytics
     recent_posts = get_recent_posts(components["db_manager"], hours=48)
+    
+    # KPI metrics
+    try:
+        posts_processed = len(recent_posts) if recent_posts else 0
+        relevant_posts = sum(1 for p in recent_posts if (p.relevance_score or 0) >= 0.5) if recent_posts else 0
+    except Exception:
+        posts_processed, relevant_posts = 0, 0
+
+    data_quality_pct = None
+    if st.session_state.get('social_last_result'):
+        dq = st.session_state.social_last_result.get('data_quality_score') or 0
+        data_quality_pct = f"{dq*100:.1f}%"
+
+    top_competitor = "N/A"
+    try:
+        latest_top = components["db_manager"].get_latest_top_competitor()
+        if latest_top:
+            top_competitor = latest_top
+    except Exception:
+        pass
+
+    kpi_metrics = {
+        "Posts Processed": posts_processed,
+        "Relevant Posts": relevant_posts,
+        "Data Quality": data_quality_pct or "-",
+        "Top Competitor by SOV": top_competitor
+    }
+    display_metrics("KPIs", kpi_metrics)
+    
+    # Show workflow results panel if available
+    if st.session_state.get('workflow_last_result'):
+        with st.expander("Latest Workflow Summary"):
+            final_report = st.session_state.workflow_last_result.get('final_report', {})
+            st.write(final_report.get('summary') or "No summary available")
+            metrics_wrk = final_report.get('metrics') or {}
+            if metrics_wrk:
+                st.write("Metrics:")
+                st.json(metrics_wrk)
     
     if recent_posts:
         # Sentiment distribution
@@ -383,9 +448,111 @@ def render_dashboard_tab(components):
 
 
 def render_social_posts_tab(components):
-    """Render the Social Posts tab."""
+    """Render the Social Posts tab with Social Intelligence tools."""
     st.header("Recent Social Media Posts")
-    
+
+    # Social Intelligence controls
+    st.subheader("Run Social Intelligence")
+    use_mock_data = st.checkbox("Use enhanced mock data", value=False, key="use_enhanced_mock_tab")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        social_query = st.text_input(
+            "Social search query:",
+            value="Uganda fintech",
+            key="social_query_tab",
+            disabled=use_mock_data
+        )
+    with col2:
+        social_max = st.slider(
+            "Max results",
+            5, 50, 20,
+            key="social_max_tab",
+            disabled=use_mock_data
+        )
+    with col3:
+        if st.session_state.social_last_run:
+            st.caption(f"Last run: {time_ago(st.session_state.social_last_run)}")
+        st.caption("Using cache (30 min TTL)")
+
+    if st.button("Run Social Intelligence", key="run_social_tab"):
+        with st.spinner("Running social intelligence..."):
+            result = safe_agent_call(
+                run_social_intelligence,
+                "Failed to run social intelligence",
+                social_query,
+                social_max,
+                use_mock_data
+            )
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.session_state.social_last_run = datetime.utcnow()
+                st.session_state.social_last_result = result
+
+    # Render last result if present
+    if st.session_state.get('social_last_result'):
+        result = st.session_state.social_last_result
+        metrics = {
+            "Posts Processed": result.get("posts_processed", 0),
+            "Relevant Posts": result.get("relevant_posts", 0),
+            "Data Quality": f"{result.get('data_quality_score', 0)*100:.1f}%"
+        }
+        display_metrics("Overview", metrics)
+
+        sa = result.get("sentiment_analysis", {}) or {}
+        if isinstance(sa, str):
+            try:
+                sa = json.loads(sa)
+            except:
+                sa = {}
+        st.markdown("### Sentiment Overview")
+        st.write(f"Overall: {sa.get('overall_sentiment', 'unknown').title()}")
+        st.write(f"Score: {sa.get('sentiment_score', 0):.2f}")
+
+        topics = result.get("trending_topics", []) or []
+        if topics:
+            st.markdown("### Trending Topics")
+            for t in topics[:5]:
+                if isinstance(t, str):
+                    try:
+                        t = json.loads(t)
+                    except:
+                        t = {"topic": "topic", "mention_count": 0}
+                st.write(f"- {t.get('topic', 'topic')} ({t.get('mention_count', 0)} mentions)")
+
+        insights = result.get("insights", []) or []
+        if insights:
+            st.markdown("### Insights")
+            display_insights(insights)
+
+        evidence = result.get("evidence_posts") or result.get("evidence") or []
+        if evidence:
+            st.markdown("### Evidence: Recent Posts")
+            for ev in evidence[:10]:
+                try:
+                    source = ev.get("source")
+                    content = ev.get("content")
+                    topics_ev = ev.get("topics")
+                    sent_ev = ev.get("sentiment")
+                    ts = ev.get("timestamp")
+                    url = ev.get("url")
+                    with st.expander(f"{source} - {sent_ev} - {str(ts)}"):
+                        st.write(content)
+                        if url:
+                            st.caption(f"[Source]({url})")
+                        if topics_ev:
+                            if isinstance(topics_ev, list):
+                                st.caption("Topics: " + ", ".join(topics_ev))
+                            else:
+                                st.caption(f"Topics: {topics_ev}")
+                except Exception:
+                    continue
+
+        with st.expander("Show raw result"):
+            st.json(result)
+
+    st.markdown("---")
+
     posts = get_recent_posts(components["db_manager"], limit=50)
     if posts:
         for post in posts:
@@ -434,6 +601,7 @@ def render_competitor_analysis_tab(components):
             if report.get("error"):
                 st.error(report["error"])
             else:
+                st.session_state.competitor_last_run = datetime.utcnow()
                 st.subheader("Competitive Intelligence Summary")
                 st.write(f"Period: Last {report['time_period_hours']} hours")
                 st.write(f"Total competitor mentions: {report['total_mentions']}")
@@ -442,6 +610,7 @@ def render_competitor_analysis_tab(components):
                 if competitor_items:
                     # Competitor sentiment
                     competitor_sentiment = {}
+                    competitor_totals = {}
                     for insight in competitor_items:
                         if isinstance(insight, str):
                             try:
@@ -455,6 +624,21 @@ def render_competitor_analysis_tab(components):
                             competitor_sentiment[competitor] = {'positive': 0, 'negative': 0, 'neutral': 0}
                         
                         competitor_sentiment[competitor][sentiment] += 1
+                        competitor_totals[competitor] = competitor_totals.get(competitor, 0) + 1
+
+                    # Share of Voice donut
+                    if competitor_totals:
+                        sov_df = pd.DataFrame({
+                            "Competitor": list(competitor_totals.keys()),
+                            "Mentions": list(competitor_totals.values())
+                        })
+                        fig_sov = px.pie(sov_df, values="Mentions", names="Competitor", title="Share of Voice (Mentions)")
+                        st.plotly_chart(fig_sov, use_container_width=True)
+                        # Persist SOV snapshot to DB
+                        try:
+                            components["db_manager"].save_competitor_sov(competitor_totals, report.get('time_period_hours', 24))
+                        except Exception:
+                            pass
                     
                     # Display sentiment by competitor
                     for competitor, sentiments in competitor_sentiment.items():
@@ -482,6 +666,8 @@ def render_competitor_analysis_tab(components):
                 else:
                     st.info("No insights generated from competitor analysis")
     else:
+        if st.session_state.competitor_last_run:
+            st.caption(f"Last run: {time_ago(st.session_state.competitor_last_run)}")
         st.info("Click the button to analyze competitor mentions")
 
 
@@ -579,6 +765,7 @@ def render_market_health_tab(components):
             if result.get("error"):
                 st.error(result["error"])
             else:
+                st.session_state.market_last_run = datetime.utcnow()
                 health = result["health_indicators"]
                 if isinstance(health, str):
                     try:
@@ -628,6 +815,14 @@ def render_market_health_tab(components):
                     else:
                         st.write("No growth segments available")
 
+                with st.expander("Show raw result"):
+                    st.json(result)
+    else:
+        if st.session_state.market_last_run:
+            st.caption(f"Last run: {time_ago(st.session_state.market_last_run)}")
+    
+    # Show workflow panel on Dashboard if available
+
 
 def render_footer():
     """Render the app footer."""
@@ -661,8 +856,7 @@ def main():
     # Render header
     render_header()
     
-    # Render social intelligence section
-    render_social_intelligence_section(components)
+    # Social Intelligence controls are rendered inside the Social Posts tab
     
     # Render sidebar
     render_sidebar(components)

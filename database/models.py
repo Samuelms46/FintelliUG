@@ -50,5 +50,13 @@ class Insight(Base):
     source_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class CompetitorSOV(Base):
+    __tablename__ = 'competitor_sov'
+    id = Column(Integer, primary_key=True)
+    competitor = Column(String(100))
+    mentions = Column(Integer)
+    period_hours = Column(Integer)
+    calculated_at = Column(DateTime, default=datetime.utcnow)
+
 # Exporting the Base so it can be imported by other modules
-__all__ = ['Base', 'SocialMediaPost', 'CompetitorMention', 'Insight']
+__all__ = ['Base', 'SocialMediaPost', 'CompetitorMention', 'Insight', 'CompetitorSOV']

@@ -1,27 +1,16 @@
-"""
-FintelliUG - Main Entry Point
-Uganda Fintech Intelligence Platform
-
-Usage:
-    python main.py --app          # Run Streamlit dashboard
-    python main.py --workflow     # Run agent workflow
-    python main.py --setup        # Setup database and initialize
-"""
-
 import argparse
 import os
 import sys
 from pathlib import Path
-
-# Add project root to Python path
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-
 from database.db_manager import DatabaseManager
 from database.vector_db import ChromaDBManager
 from utils.logger import setup_logger
 from agents.langgraph_workflow import MultiAgentWorkflow
 import subprocess
+
+# Add project root to Python path
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
 def setup_environment():
     """Setup environment and create necessary directories"""
@@ -29,7 +18,6 @@ def setup_environment():
     
     # Create necessary directories
     directories = [
-        "data",
         "logs",
         "data_collection/cache"
     ]

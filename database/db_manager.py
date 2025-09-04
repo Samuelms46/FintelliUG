@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from .models import Base, SocialMediaPost, CompetitorMention, Insight
+from .models import Base, SocialMediaPost, CompetitorMention, Insight, CompetitorSOV
 from .vector_db import ChromaDBManager
 from config import Config
 import json
@@ -178,3 +178,34 @@ class DatabaseManager:
           ).count()
         finally:
             session.close()        
+
+    # Competitor SOV helpers
+    def save_competitor_sov(self, competitor_to_mentions: Dict[str, int], period_hours: int) -> None:
+        session = self.get_session()
+        try:
+            for competitor, mentions in competitor_to_mentions.items():
+                record = CompetitorSOV(
+                    competitor=competitor,
+                    mentions=int(mentions),
+                    period_hours=period_hours
+                )
+                session.add(record)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_latest_top_competitor(self) -> str:
+        session = self.get_session()
+        try:
+            # Get most recent batch by calculated_at
+            latest = session.query(CompetitorSOV.calculated_at).order_by(CompetitorSOV.calculated_at.desc()).first()
+            if not latest:
+                return None
+            latest_time = latest[0]
+            row = session.query(CompetitorSOV).filter(CompetitorSOV.calculated_at == latest_time).order_by(CompetitorSOV.mentions.desc()).first()
+            return row.competitor if row else None
+        finally:
+            session.close()

@@ -22,6 +22,7 @@ def cleanup_chroma_db():
     # ChromaDB paths to check
     chroma_paths = [
         "chroma_db",
+        "./chroma_db",
         "chroma_db/chroma.sqlite3"
     ]
     
