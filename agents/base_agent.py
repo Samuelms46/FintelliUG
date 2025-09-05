@@ -1,16 +1,20 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 from datetime import datetime, timedelta
 import os
 import json
 import redis
+import hashlib
+import re
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
 from utils.tools import XSearchTool
+from database.vector_db import ChromaDBManager
+from config import Config
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,10 +26,12 @@ class BaseAgent(ABC):
     fintech-related data in Uganda.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, agent_type: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         """Initialize the agent with Groq LLM, ChromaDB, Redis, and Azure embeddings from .env.
         """
         self.name = name
+        self.agent_type =agent_type or name.lower().replace(' ', '_')
+
         # Initializes logger early 
         self.logger = logging.getLogger(f"agent.{name}")
         if not self.logger.handlers:
@@ -47,23 +53,43 @@ class BaseAgent(ABC):
             temperature=float(os.getenv("GROQ_TEMPERATURE", 0.7)),
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
+        
+        # Initialize LLM with tools support for advanced agents
+        try:
+            self.llm_with_tools = ChatGroq(
+                model=os.getenv("GROQ_MODEL"),
+                temperature=float(os.getenv("GROQ_TEMPERATURE", 0.7)),
+                groq_api_key=os.getenv("GROQ_API_KEY")
+            )
+            self.logger.info("LLM with tools initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize LLM with tools: {str(e)}")
+            self.llm_with_tools = None
         self.embeddings = AzureOpenAIEmbeddings(
             model="text-embedding-3-small",
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
             azure_deployment=os.getenv("AZURE_EMBEDDING_BASE")
         )
-        # Use a unique collection name for each agent to avoid conflicts
-        collection_name = f"fintelliug_{name.lower().replace(' ', '_')}"
+         # Initialize ChromaDBManager with agent-specific collection
+        collection_name = Config.AGENT_COLLECTIONS.get(
+            self.agent_type, 
+            f"fintelliug_{self.agent_type}"
+        )
+        self.db_manager = ChromaDBManager(collection_name=collection_name)
+        
+        # Keep existing LangChain ChromaDB for backward compatibility
+        langchain_collection_name = f"fintelliug_{self.name.lower().replace(' ', '_')}"
         persist_dir = os.getenv("CHROMA_PERSIST_DIR", "chroma_db")
         
         try:
             self.vector_store = Chroma(
-                collection_name=collection_name,
+                collection_name=langchain_collection_name,
                 embedding_function=self.embeddings,
                 persist_directory=persist_dir
             )
-            self.logger.info(f"Initialized ChromaDB collection: {collection_name}")
+            self.logger.info(f"Initialized LangChain ChromaDB collection: {langchain_collection_name}")
+            self.logger.info(f"Initialized ChromaDBManager collection: {collection_name}")
         except Exception as e:
             self.logger.error(f"Failed to initialize ChromaDB: {str(e)}")
             self.vector_store = None
@@ -216,6 +242,34 @@ class BaseAgent(ABC):
         except Exception as e:
             self.logger.error(f"Failed to fetch social data: {str(e)}")
             return []
+
+    def create_document_id(self, text: str, source: Optional[str] = None) -> str:
+        """Create a unique document ID for vector storage."""
+        content = f"{text}:{source}" if source else text
+        return hashlib.md5(content.encode()).hexdigest()
+
+    def extract_json_from_response(self, response_text: str) -> dict:
+        """Extract JSON from LLM response, handling markdown formatting."""
+        if not response_text:
+            return {}
+        
+        # Remove markdown code blocks
+        cleaned = re.sub(r'```(?:json)?\s*', '', response_text)
+        cleaned = cleaned.replace('```', '').strip()
+        
+        # Try to find JSON in the response
+        json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        return {}
+
+    def get_config_value(self, key: str, default=None):
+        """Get configuration value with fallback."""
+        return Config.get_agent_config(self.agent_type, key, default)
 
     def delete_old_records(self, cutoff_days: int = 90) -> bool:
         """Delete ChromaDB records older than specified days (default: 90 days) for compliance with Uganda's Data Protection Act."""

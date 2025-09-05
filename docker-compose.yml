@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./chroma_db:/chroma_db
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CHROMA_PERSIST_DIR=/chroma_db
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

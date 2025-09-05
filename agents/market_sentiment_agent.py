@@ -5,6 +5,7 @@ import json
 import hashlib
 import re
 from database.db_manager import DatabaseManager
+from config import Config
 
 
 def safe_json_parse(data):
@@ -20,9 +21,9 @@ def safe_json_parse(data):
 class MarketSentimentAgent(BaseAgent):
     """Agent for analyzing overall market sentiment and trends in Uganda's fintech ecosystem."""
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self):
         """Initialize the MarketSentimentAgent with base infrastructure."""
-        super().__init__("market_sentiment")
+        super().__init__(name="market_sentiment")
         
         # Market sentiment specific configuration
         self.config = config or {}

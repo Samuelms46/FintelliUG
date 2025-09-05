@@ -53,19 +53,34 @@ class XSearchTool:
         """
         try:
             # Fetch recent tweets using v2 endpoint
-            tweets = self.client.search_recent_tweets(
+            response = self.client.search_recent_tweets(
                 query=query,
                 tweet_fields=['created_at', 'text'],
                 max_results=max_results
             )
 
+            # use getattr to avoid Pylance attribute warnings and be defensive at runtime
+            tweets_data = getattr(response, "data", None)
+            if not response or not tweets_data:
+                self.logger.warning(f"No tweets found for query: {query} | response: {response}")
+                return []
+
             posts = []
-            for tweet in tweets.data or []:
-                anonymized_text = anonymize_text(tweet.text, self.logger)
+            for tweet in tweets_data:
+                # defensive access to fields
+                text = getattr(tweet, "text", "") or ""
+                try:
+                    anonymized_text = anonymize_text(str(text), self.logger)
+                except Exception:
+                    anonymized_text = str(text)
+
+                created_at = getattr(tweet, "created_at", None)
+                ts = created_at.isoformat() if created_at else datetime.utcnow().isoformat()
+
                 posts.append({
                     "text": anonymized_text,
                     "source": "twitter",
-                    "timestamp": tweet.created_at.isoformat()  # ISO format
+                    "timestamp": ts
                 })
 
             self.logger.info(f"Fetched {len(posts)} X posts for query: {query}")

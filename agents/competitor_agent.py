@@ -3,22 +3,19 @@ from typing import Dict, List, Any
 from datetime import datetime, timedelta
 import json
 import re
+from config import Config
 
 class CompetitorAnalysisAgent(BaseAgent):
     """Agent for analyzing competitor mentions and sentiment in social media data."""
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self):
         """Initialize the CompetitorAnalysisAgent with base infrastructure."""
-        super().__init__("competitor_analysis")
+        super().__init__(name="competitor_analysis")
         self.logger.info("Initializing CompetitorAnalysisAgent")
 
         
         # Competitor-specific configuration
-        self.config = config or {}
-        self.competitors = self.config.get("competitors", [
-            "MTN MoMo", "Airtel Money", "Chipper Cash", "Stanbic Bank", 
-            "Centenary Bank", "Equity Bank", "DFCU Bank"
-        ])
+        self.competitors = Config.COMPETITORS
         
         self.logger.info(f"CompetitorAnalysisAgent initialized with {len(self.competitors)} competitors")
     

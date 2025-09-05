@@ -82,3 +82,12 @@ class DataProcessor:
             except Exception as e:
                 print(f"Error processing post: {e}")
         return results
+
+    def collect_real_data(self):
+        """
+        Collect real data from your sources (e.g., Reddit, Twitter, News).
+        Replace this stub with your actual data collection logic.
+        """
+        # Example: collect from Reddit
+        posts = self.reddit_collector.search_uganda_fintech(query="Uganda fintech", limit=20)
+        return self.batch_process(posts)

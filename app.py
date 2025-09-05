@@ -121,21 +121,21 @@ def get_mock_posts():
             "content": "MTN Mobile Money fees are getting too high. Thinking of switching to Airtel.",
             "author": "uganda_user123",
             "url": "https://reddit.com/r/uganda/123",
-            "timestamp": datetime.utcnow() - timedelta(hours=2)
+            "timestamp": datetime.now(tz=None) - timedelta(hours=2)
         },
         {
             "source": "twitter",
             "content": "Airtel Money has better network coverage in my village than MTN. Finally can send money home easily!",
             "author": "rural_user",
             "url": "https://twitter.com/user/123",
-            "timestamp": datetime.utcnow() - timedelta(hours=5)
+            "timestamp": datetime.now(tz=None) - timedelta(hours=5)
         },
         {
             "source": "news",
             "content": "Bank of Uganda announces new regulations for mobile money providers. Will this increase costs for consumers?",
             "author": "BusinessDaily",
             "url": "https://businessdaily.ug/123",
-            "timestamp": datetime.utcnow() - timedelta(days=1)
+            "timestamp": datetime.now(tz=None) - timedelta(days=1)
         }
     ]
 
@@ -345,7 +345,7 @@ def render_sidebar(components):
                 # Show workflow results
                 if result and 'final_report' in result:
                     st.session_state.workflow_last_result = result
-                    st.session_state.workflow_last_run = datetime.utcnow()
+                    st.session_state.workflow_last_run = datetime.now(tz=None)
                     metrics = {
                         "Posts Processed": result['final_report'].get('metrics', {}).get('posts_processed', 0),
                         "Insights Generated": result['final_report'].get('metrics', {}).get('market_insights', 0)
@@ -486,7 +486,7 @@ def render_social_posts_tab(components):
             if result.get("error"):
                 st.error(result["error"])
             else:
-                st.session_state.social_last_run = datetime.utcnow()
+                st.session_state.social_last_run = datetime.now(tz=None)
                 st.session_state.social_last_result = result
 
     # Render last result if present
@@ -601,7 +601,7 @@ def render_competitor_analysis_tab(components):
             if report.get("error"):
                 st.error(report["error"])
             else:
-                st.session_state.competitor_last_run = datetime.utcnow()
+                st.session_state.competitor_last_run = datetime.now(tz=None)
                 st.subheader("Competitive Intelligence Summary")
                 st.write(f"Period: Last {report['time_period_hours']} hours")
                 st.write(f"Total competitor mentions: {report['total_mentions']}")
@@ -765,7 +765,7 @@ def render_market_health_tab(components):
             if result.get("error"):
                 st.error(result["error"])
             else:
-                st.session_state.market_last_run = datetime.utcnow()
+                st.session_state.market_last_run = datetime.now(tz=None)
                 health = result["health_indicators"]
                 if isinstance(health, str):
                     try:

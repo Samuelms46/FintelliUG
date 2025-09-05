@@ -1,26 +1,32 @@
 from .base_agent import BaseAgent
+from config import Config
 from typing import Dict, List, Any
 import json
 import hashlib
+import re  
 from datetime import datetime, timedelta
 
 class SocialIntelAgent(BaseAgent):
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__("social_intelligence")
-        self.fintech_keywords = [
-            'mobile money', 'fintech', 'digital payments', 'MTN MoMo', 
-            'Airtel Money', 'banking', 'loans', 'savings', 'investment',
-            'chipper cash', 'payment', 'transfer', 'financial', 'wallet'
-        ]
+    def __init__(self, config=None):
+        super().__init__(name="social_intelligence", agent_type="social_intelligence", config=config)
         
-        # Binds the tool to LLM for dynamic queries - simplified approach
+        # Use fintech keywords from config
+        self.fintech_keywords = Config.get_all_fintech_keywords()
+        
+        # Configuration from config.py - Use the new get_agent_config method
+        self.cache_ttl = Config.get_agent_config("social_intelligence", "cache_ttl", Config.DEFAULT_CACHE_TTL)
+        self.max_posts = Config.get_agent_config("social_intelligence", "max_posts", Config.DEFAULT_MAX_POSTS)
+        self.relevance_threshold = Config.get_agent_config("social_intelligence", "relevance_threshold", Config.DEFAULT_RELEVANCE_THRESHOLD)
+        self.trending_days = Config.get_agent_config("social_intelligence", "trending_days", 7)
+        self.trending_threshold = Config.get_agent_config("social_intelligence", "trending_threshold", 0.1)
+        
         if self.x_search_tool:
             self.llm_with_tools = self.llm  
             self.logger.info("XSearchTool available for manual use in insights generation")
         else:
             self.llm_with_tools = self.llm
             self.logger.warning("XSearchTool not available - using LLM without tools")
-        
+    
     def validate_input(self, input_data: Dict[str, Any]) -> bool:
         """Validate input data - supports both 'posts' list and 'query' string."""
         # Support query-based input for dynamic social data fetching
@@ -117,47 +123,90 @@ class SocialIntelAgent(BaseAgent):
             text = post.get('text', '').lower()
             if any(keyword in text for keyword in self.fintech_keywords):
                 post['relevance_score'] = self._calculate_relevance(text)
-                if post['relevance_score'] > 0.5:
+                if post['relevance_score'] > 0.45: 
                     relevant_posts.append(post)
         
         return relevant_posts
     
     def _analyze_sentiment_trends(self, posts: List[Dict]) -> Dict[str, Any]:
-        """Analyze sentiment trends over time."""
+        """Analyze sentiment trends over time with robust JSON parsing."""
         prompt = f"""
         Analyze sentiment trends in these Uganda fintech discussions:
 
-        Posts: {json.dumps([p['text'] for p in posts[:10]])}
+        Posts: {json.dumps([p['text'] for p in posts[:10]], ensure_ascii=False)}
 
-        Return ONLY the analysis as a valid JSON object, 
-        formatted exactly like below example, with no explanation, code, 
-        comments or extra text. Example output:
+        Return ONLY a valid JSON object with no additional text, explanations, or markdown formatting.
+        Use this exact structure:
+
         {{
-        "overall_sentiment": "positive",
-        "sentiment_score": 0.55,
-        "key_sentiment_drivers": ["positive", "negative", "positive"],
-        "sentiment_by_topic": {{
-            "mobile_money": 0.85,
-            "banking": -0.3
+            "overall_sentiment": "positive/negative/neutral",
+            "sentiment_score": 0.55,
+            "key_sentiment_drivers": ["driver1", "driver2", "driver3"],
+            "sentiment_by_topic": {{
+                "mobile_money": 0.85,
+                "banking": -0.3
             }}
         }}
         """
-
         
-        response = self.llm.invoke(prompt)
-        # Extract text from AIMessage or use str fallback
-        if hasattr(response, "content"):
-            response_text = response.content
-        else:
-            response_text = str(response)
+        response_text = ""  # Initialize variable to avoid scope issues
+        
         try:
-            return json.loads(response_text)
-        except json.JSONDecodeError:
-            return {"error": f"Failed to parse sentiment analysis: {response_text}"}
+            response = self.llm.invoke(prompt)
+            
+            # Extract text from response
+            if hasattr(response, "content") and response.content:
+                content = response.content
+                if isinstance(content, str):
+                    response_text = content.strip()
+                elif isinstance(content, (list, tuple)):
+                    response_text = ' '.join(str(item) for item in content).strip()
+                else:
+                    response_text = str(content).strip()
+            else:
+                response_text = str(response).strip() if response else ""
+            
+            # Clean the response - remove markdown code blocks if present
+            if response_text.startswith('```json'):
+                response_text = response_text.replace('```json', '').replace('```', '').strip()
+            elif response_text.startswith('```'):
+                response_text = response_text.replace('```', '').strip()
+            
+            # Try to find JSON in the response
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group()
+            
+            # Parse JSON
+            result = json.loads(response_text)
+            self.logger.info("Successfully parsed sentiment analysis JSON")
+            return result
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON parsing failed: {e}")
+            self.logger.error(f"Raw response: {response_text[:200]}...")
+            
+            # Return fallback structure
+            return {
+                "overall_sentiment": "neutral",
+                "sentiment_score": 0.5,
+                "key_sentiment_drivers": ["insufficient_data"],
+                "sentiment_by_topic": {},
+                "error": f"JSON parsing failed: {str(e)}"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Sentiment analysis failed: {e}")
+            return {
+                "overall_sentiment": "neutral",
+                "sentiment_score": 0.5,
+                "key_sentiment_drivers": ["analysis_error"],
+                "sentiment_by_topic": {},
+                "error": f"Analysis failed: {str(e)}"
+            }
     
     def _detect_trending_topics(self, posts: List[Dict]) -> List[Dict]:
         """Detect trending fintech topics."""
-        # Simple frequency-based trending detection
         topic_counts = {}
         current_time = datetime.now()
         
@@ -168,7 +217,9 @@ class SocialIntelAgent(BaseAgent):
                 if post_time.tzinfo is not None:
                     post_time = post_time.replace(tzinfo=None)
                 
-                if (current_time - post_time).days <= 7:  # Last 7 days
+                # Use config value for trending days
+                trending_days = self.trending_days if isinstance(self.trending_days,int) else 7
+                if (current_time - post_time).days <= trending_days:
                     for keyword in self.fintech_keywords:
                         if keyword in post['text'].lower():
                             topic_counts[keyword] = topic_counts.get(keyword, 0) + 1
@@ -240,7 +291,11 @@ class SocialIntelAgent(BaseAgent):
         elif 'query' in input_data:
             # Fetch posts using XSearchTool
             query = input_data['query']
-            max_results = input_data.get('max_results', 20)
+            max_results = input_data.get('max_results', self.max_posts)  # Use config default
+            
+            # Ensure max_results is an integer
+            if not isinstance(max_results, int):
+                max_results = self.max_posts or 10
             
             # Build fintech-focused query if not already specific
             if not any(keyword in query.lower() for keyword in self.fintech_keywords):
@@ -319,17 +374,20 @@ Focus on:
                     r'^\*\s*(.+)'                # * bullet format
                 ]
                 
-                import re
                 found_insights = []
                 
                 for pattern in insight_patterns:
-                    matches = re.findall(pattern, response_text, re.MULTILINE)
-                    found_insights.extend(matches)
+                    if response_text and isinstance(response_text,str):
+                        matches = re.findall(pattern, response_text, re.MULTILINE)
+                        found_insights.extend(matches)
                 
                 # If structured parsing fails, extract sentences as insights
                 if not found_insights:
-                    sentences = response_text.split('.')
-                    found_insights = [s.strip() for s in sentences if len(s.strip()) > 20 and len(s.strip()) < 200]
+                    # Fix for line 384 - add safety checks
+                    if response_text and isinstance(response_text, str):
+                        sentences = response_text.split('.')
+                        found_insights = [s.strip() for s in sentences 
+                                        if s.strip() and len(s.strip()) > 20 and len(s.strip()) < 200]
                 
                 # Convert to structured format
                 for i, insight_text in enumerate(found_insights[:5]):  # Limit to 5 insights
@@ -378,44 +436,30 @@ Focus on:
         return insights
     
     def _calculate_relevance(self, text: str) -> float:
-        """Calculate relevance score for fintech content."""
+        """Calculate relevance score for fintech content using config weights."""
         score = 0.0
         text_lower = text.lower()
         
-        # Keyword matching with weights
-        keyword_weights = {
-            'mobile money': 0.3,
-            'fintech': 0.2,
-            'digital payments': 0.2,
-            'banking': 0.15,
-            'mtn momo': 0.25,
-            'airtel money': 0.25,
-            'chipper cash': 0.25,
-            'payment': 0.1,
-            'transfer': 0.1,
-            'financial': 0.1,
-            'uganda': 0.15
-        }
-        
-        for keyword, weight in keyword_weights.items():
+        # Use keyword weights from config
+        for keyword, weight in Config.FINTECH_KEYWORD_WEIGHTS.items():
             if keyword in text_lower:
                 score += weight
         
         return min(score, 1.0)
     
     def _calculate_data_quality(self, posts: List[Dict]) -> float:
-        """Calculate overall data quality score."""
+        """Calculate overall data quality score using config values."""
         if not posts:
             return 0.0
         
         quality_factors = []
         
-        # Text length quality (not too short, not too long)
+        # Text length quality using config values
         avg_length = sum(len(post['text']) for post in posts) / len(posts)
-        length_score = 1.0 if 50 <= avg_length <= 500 else 0.5
+        length_score = 1.0 if Config.MIN_TEXT_LENGTH <= avg_length <= Config.MAX_TEXT_LENGTH else 0.5
         quality_factors.append(length_score)
         
-        # Language quality (English content)
+        # Language quality
         english_posts = sum(1 for post in posts if self._is_english(post['text']))
         language_score = english_posts / len(posts)
         quality_factors.append(language_score)
@@ -427,8 +471,7 @@ Focus on:
         return sum(quality_factors) / len(quality_factors)
     
     def _is_english(self, text: str) -> bool:
-        """Simple English language detection."""
-        english_indicators = ['the', 'and', 'is', 'to', 'of', 'in', 'for', 'on', 'with']
+        """Simple English language detection using config indicators."""
         text_lower = text.lower()
-        matches = sum(1 for word in english_indicators if word in text_lower)
-        return matches >= 3
+        matches = sum(1 for word in Config.ENGLISH_INDICATORS if word in text_lower)
+        return matches >= Config.MIN_ENGLISH_INDICATORS
